@@ -146,17 +146,22 @@ def _expected_table_payload(table: str, row: sqlite3.Row) -> str:
     """Builds the canonical JSON snapshot expected for a product or movement row."""
     if table == "products":
         return canonical_json({
+            "category_id": row["category_id"],
             "id": row["id"],
             "name": row["name"],
+            "reorder_threshold": row["reorder_threshold"],
             "sku": row["sku"],
             "unit_price": row["unit_price"],
         })
     return canonical_json({
         "created_by": row["created_by"],
         "id": row["id"],
+        "location_id": row["location_id"],
         "note": row["note"],
         "product_id": row["product_id"],
         "qty": row["qty"],
+        "reference_doc": row["reference_doc"],
+        "supplier_id": row["supplier_id"],
         "type": row["type"],
     })
 
@@ -334,7 +339,7 @@ def tamper_for_demo(block_id: int = 1, file_level: bool = True) -> dict:
 
         cur.execute(
             "UPDATE audit_log SET details = ?, row_hash = ? WHERE id = ?;",
-            (target["details"] + " [TAMPERED]", fake_hash, block_id),
+            (target["details"] + " [TAMPERED - UNKEYED HASH]", fake_hash, block_id),
         )
         cur.execute(
             """
@@ -351,7 +356,7 @@ def tamper_for_demo(block_id: int = 1, file_level: bool = True) -> dict:
 
 
 def init_db() -> None:
-    """Initializes schema, triggers, demo users, and initial catalog seed data."""
+    """Initializes schema, triggers, demo users, and realistic relational seed data."""
     conn = get_connection()
     try:
         conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
@@ -359,6 +364,7 @@ def init_db() -> None:
         with write_tx(conn):
             cur = conn.cursor()
 
+            # 1. Seed demo users
             default_admin_pw = "vault-admin-2026" if DEMO_MODE else secrets.token_urlsafe(12)
             default_staff_pw = "vault-staff-2026" if DEMO_MODE else secrets.token_urlsafe(12)
             admin_pw = ADMIN_PASSWORD or default_admin_pw
@@ -376,7 +382,6 @@ def init_db() -> None:
                     ("staff", hash_password(staff_pw), "staff"),
                 )
             elif ADMIN_PASSWORD or STAFF_PASSWORD or DEMO_MODE:
-                # Ensure configured or demo passwords stay active across restarts
                 for uname, pw in (("admin", admin_pw), ("staff", staff_pw)):
                     cur.execute("SELECT password_hash FROM users WHERE username = ?;", (uname,))
                     row = cur.fetchone()
@@ -386,53 +391,111 @@ def init_db() -> None:
                             (hash_password(pw), uname),
                         )
 
+            # 2. Seed Categories
+            cur.execute("SELECT COUNT(*) as cnt FROM categories;")
+            if cur.fetchone()["cnt"] == 0:
+                categories = [
+                    ("COMP", "Computer Hardware & Peripherals", "Laptops, workstations, displays, and high-performance peripherals"),
+                    ("NET", "Networking Equipment", "Enterprise routers, managed switches, and Wi-Fi 6 access points"),
+                    ("OFF", "Office Supplies & Paper", "Toner, ergonomic accessories, and warehouse packaging supplies"),
+                    ("PWR", "Power & Electrical Tools", "Cordless drills, testing equipment, and industrial battery packs"),
+                ]
+                cur.executemany(
+                    "INSERT INTO categories (code, name, description) VALUES (?, ?, ?);",
+                    categories,
+                )
+
+            # 3. Seed Suppliers
+            cur.execute("SELECT COUNT(*) as cnt FROM suppliers;")
+            if cur.fetchone()["cnt"] == 0:
+                suppliers = [
+                    ("Apex Global Electronics", "dispatch@apexelectronics.com", "+1-800-555-0144"),
+                    ("LogiTech Wholesale", "supply@logitechwholesale.com", "+1-800-555-0288"),
+                    ("Prime Industrial Supply", "orders@primeindustrialsupply.com", "+1-800-555-0399"),
+                ]
+                cur.executemany(
+                    "INSERT INTO suppliers (name, contact_email, phone) VALUES (?, ?, ?);",
+                    suppliers,
+                )
+
+            # 4. Seed Storage Locations
+            cur.execute("SELECT COUNT(*) as cnt FROM locations;")
+            if cur.fetchone()["cnt"] == 0:
+                locations = [
+                    ("WH-A1", "Main Warehouse Section A"),
+                    ("WH-B2", "Secondary Storage Depot B"),
+                    ("RETAIL-1", "Storefront Retail Floor"),
+                ]
+                cur.executemany(
+                    "INSERT INTO locations (code, name) VALUES (?, ?);",
+                    locations,
+                )
+
+            # 5. Seed Catalog Products & Initial Movements
             cur.execute("SELECT COUNT(*) as cnt FROM products;")
             if cur.fetchone()["cnt"] == 0:
-                seed_items = [
-                    ("SKU-APPLE-01", "MacBook Pro 16-inch M3", 2499.00),
-                    ("SKU-APPLE-02", "Magic Keyboard with Touch ID", 199.00),
-                    ("SKU-APPLE-03", "Studio Display 27-inch 5K", 1599.00),
-                    ("SKU-APPLE-04", "AirPods Pro 2nd Gen", 249.00),
+                seed_products = [
+                    ("SKU-LAPTOP-01", "MacBook Pro 16-inch M3", 1, 2499.00, 5, 25, 1, 1, "PO-2026-001"),
+                    ("SKU-KBD-02", "Mechanical Wireless Keyboard", 1, 149.00, 10, 40, 2, 1, "PO-2026-002"),
+                    ("SKU-DISP-03", "4K Ultra-Wide Monitor 34-inch", 1, 799.00, 8, 15, 1, 2, "PO-2026-003"),
+                    ("SKU-ROUTER-04", "Enterprise WiFi-6 Mesh Router", 2, 349.00, 6, 20, 2, 2, "PO-2026-004"),
+                    ("SKU-TONER-05", "High-Yield Laser Toner Cartridge", 3, 89.00, 15, 30, 3, 1, "PO-2026-005"),
+                    ("SKU-DRILL-06", "Cordless Brushless Hammer Drill 20V", 4, 189.00, 8, 18, 3, 3, "PO-2026-006"),
                 ]
-                for sku, name, price in seed_items:
+                for sku, name, cat_id, price, threshold, initial_qty, supp_id, loc_id, po_ref in seed_products:
                     cur.execute(
-                        "INSERT INTO products (sku, name, unit_price) VALUES (?, ?, ?);",
-                        (sku, name, price),
+                        """
+                        INSERT INTO products (sku, name, category_id, unit_price, reorder_threshold)
+                        VALUES (?, ?, ?, ?, ?);
+                        """,
+                        (sku, name, cat_id, price, threshold),
                     )
                     p_id = cur.lastrowid
+                    p_payload = {
+                        "category_id": cat_id,
+                        "id": p_id,
+                        "name": name,
+                        "reorder_threshold": threshold,
+                        "sku": sku,
+                        "unit_price": price,
+                    }
                     append_audit_entry(
                         conn,
                         "PRODUCT_CREATE",
                         "system",
                         "products",
                         p_id,
-                        {"id": p_id, "name": name, "sku": sku, "unit_price": price},
-                        f"Created product '{name}' ({sku})",
+                        p_payload,
+                        f"Created product '{name}' ({sku}) under category #{cat_id}",
                     )
 
                     cur.execute(
                         """
-                        INSERT INTO movements (product_id, type, qty, note, created_by)
-                        VALUES (?, 'IN', 25, 'Initial stock shipment received', 'system');
+                        INSERT INTO movements (product_id, supplier_id, location_id, type, qty, reference_doc, note, created_by)
+                        VALUES (?, ?, ?, 'IN', ?, ?, 'Initial inventory stock receipt', 'system');
                         """,
-                        (p_id,),
+                        (p_id, supp_id, loc_id, initial_qty, po_ref),
                     )
                     m_id = cur.lastrowid
+                    m_payload = {
+                        "created_by": "system",
+                        "id": m_id,
+                        "location_id": loc_id,
+                        "note": "Initial inventory stock receipt",
+                        "product_id": p_id,
+                        "qty": initial_qty,
+                        "reference_doc": po_ref,
+                        "supplier_id": supp_id,
+                        "type": "IN",
+                    }
                     append_audit_entry(
                         conn,
                         "STOCK_RECEIVE",
                         "system",
                         "movements",
                         m_id,
-                        {
-                            "created_by": "system",
-                            "id": m_id,
-                            "note": "Initial stock shipment received",
-                            "product_id": p_id,
-                            "qty": 25,
-                            "type": "IN",
-                        },
-                        f"Initial stock IN: 25 units for product #{p_id}",
+                        m_payload,
+                        f"Initial receipt: {initial_qty} units of '{name}' via {po_ref}",
                     )
             sync_anchor_to_latest(conn)
     finally:
@@ -445,16 +508,21 @@ def reset_demo_db(admin_actor: str = "admin") -> None:
     try:
         conn.executescript(
             """
+            DROP VIEW IF EXISTS v_ledger_history;
+            DROP VIEW IF EXISTS v_low_stock_alerts;
+            DROP VIEW IF EXISTS v_inventory_summary;
             DROP TRIGGER IF EXISTS prevent_negative_stock;
             DROP TRIGGER IF EXISTS prevent_movement_update;
             DROP TRIGGER IF EXISTS prevent_movement_delete;
-            DROP TRIGGER IF EXISTS prevent_product_update;
             DROP TRIGGER IF EXISTS prevent_product_delete;
             DROP TRIGGER IF EXISTS prevent_audit_update;
             DROP TRIGGER IF EXISTS prevent_audit_delete;
             DROP TABLE IF EXISTS audit_log;
             DROP TABLE IF EXISTS movements;
             DROP TABLE IF EXISTS products;
+            DROP TABLE IF EXISTS locations;
+            DROP TABLE IF EXISTS suppliers;
+            DROP TABLE IF EXISTS categories;
             DROP TABLE IF EXISTS users;
             """
         )
@@ -474,7 +542,7 @@ def reset_demo_db(admin_actor: str = "admin") -> None:
                 None,
                 None,
                 {"action": "DEMO_RESET", "reset_by": admin_actor},
-                f"Database reset to initial seed state by {admin_actor}",
+                f"Database reset to clean relational baseline by {admin_actor}",
             )
         sync_anchor_to_latest(conn)
     finally:
@@ -482,7 +550,7 @@ def reset_demo_db(admin_actor: str = "admin") -> None:
 
 
 def get_db_debug_info() -> dict:
-    """Returns live SQLite engine telemetry, active PRAGMAs, triggers, indices, and head state."""
+    """Returns live SQLite engine telemetry, active PRAGMAs, triggers, indices, and views."""
     conn = get_connection()
     try:
         cur = conn.cursor()
@@ -495,8 +563,11 @@ def get_db_debug_info() -> dict:
         page_count = cur.execute("PRAGMA page_count;").fetchone()[0]
 
         counts = {}
-        for tbl in ("users", "products", "movements", "audit_log"):
-            counts[tbl] = cur.execute(f"SELECT COUNT(*) FROM {tbl};").fetchone()[0]
+        for tbl in ("users", "categories", "suppliers", "locations", "products", "movements", "audit_log"):
+            try:
+                counts[tbl] = cur.execute(f"SELECT COUNT(*) FROM {tbl};").fetchone()[0]
+            except sqlite3.OperationalError:
+                counts[tbl] = 0
 
         cur.execute(
             "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY tbl_name, name;"
@@ -507,6 +578,11 @@ def get_db_debug_info() -> dict:
             "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
         )
         tables = [dict(r) for r in cur.fetchall()]
+
+        cur.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'view' ORDER BY name;"
+        )
+        views = [dict(r) for r in cur.fetchall()]
 
         cur.execute(
             "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name;"
@@ -529,12 +605,91 @@ def get_db_debug_info() -> dict:
             "row_counts": counts,
             "triggers": triggers,
             "tables": tables,
+            "views": views,
             "indices": indices,
             "db_head": dict(db_head) if db_head else None,
             "external_anchor": get_anchor(),
         }
     finally:
         conn.close()
+
+
+ALLOWED_DB_OBJECTS = {
+    "categories",
+    "suppliers",
+    "locations",
+    "products",
+    "movements",
+    "audit_log",
+    "users",
+    "v_inventory_summary",
+    "v_low_stock_alerts",
+    "v_ledger_history",
+}
+
+
+def inspect_table_or_view(name: str, limit: int = 50) -> dict:
+    """
+    Returns full relational metadata (columns, data types, PK/FK constraints, DDL SQL)
+    and live raw rows for a given table or view so faculty/evaluators can inspect the actual DB.
+    """
+    if name not in ALLOWED_DB_OBJECTS:
+        raise ValueError(f"Object '{name}' is not an inspectable database table or view.")
+
+    safe_limit = max(1, min(limit, 200))
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+
+        # 1. Object type & DDL SQL from sqlite_master
+        cur.execute("SELECT type, sql FROM sqlite_master WHERE name = ?;", (name,))
+        meta = cur.fetchone()
+        obj_type = meta["type"].upper() if meta else "TABLE"
+        ddl_sql = meta["sql"] if meta else ""
+
+        # 2. Column metadata via PRAGMA table_info
+        cur.execute(f"PRAGMA table_info({name});")
+        columns = []
+        for col in cur.fetchall():
+            columns.append({
+                "cid": col["cid"],
+                "name": col["name"],
+                "type": col["type"] or "DYNAMIC (VIEW)",
+                "notnull": bool(col["notnull"]),
+                "default_value": col["dflt_value"],
+                "is_pk": bool(col["pk"]),
+            })
+
+        # 3. Foreign key metadata via PRAGMA foreign_key_list
+        foreign_keys = []
+        if obj_type == "TABLE":
+            cur.execute(f"PRAGMA foreign_key_list({name});")
+            for fk in cur.fetchall():
+                foreign_keys.append({
+                    "column": fk["from"],
+                    "references_table": fk["table"],
+                    "references_column": fk["to"],
+                    "on_delete": fk["on_delete"],
+                    "on_update": fk["on_update"],
+                })
+
+        # 4. Total row count & raw rows
+        total_rows = cur.execute(f"SELECT COUNT(*) FROM {name};").fetchone()[0]
+        cur.execute(f"SELECT * FROM {name} LIMIT ?;", (safe_limit,))
+        raw_rows = [dict(r) for r in cur.fetchall()]
+
+        return {
+            "name": name,
+            "object_type": obj_type,
+            "ddl_sql": ddl_sql,
+            "total_rows": total_rows,
+            "columns": columns,
+            "foreign_keys": foreign_keys,
+            "rows": raw_rows,
+        }
+    finally:
+        conn.close()
+
 
 
 def run_sql_probe(probe_type: str) -> dict:
@@ -546,32 +701,29 @@ def run_sql_probe(probe_type: str) -> dict:
 
     probes = {
         "explain_stock": {
-            "title": "EXPLAIN QUERY PLAN — Dynamic Stock Derivation",
+            "title": "EXPLAIN QUERY PLAN — Relational Stock Derivation View",
             "sql": (
                 "EXPLAIN QUERY PLAN\n"
-                "SELECT p.id, p.sku, p.name,\n"
-                "       COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.qty ELSE -m.qty END), 0) AS current_stock\n"
-                "FROM products p\n"
-                "LEFT JOIN movements m ON p.id = m.product_id\n"
-                "GROUP BY p.id ORDER BY p.id ASC;"
+                "SELECT * FROM v_inventory_summary;"
             ),
             "mode": "explain",
             "process_steps": [
-                "1. Client issues balance query with SUM(IN) - SUM(OUT) aggregation.",
-                "2. SQLite parser builds execution tree: SCAN table 'products' in primary key order.",
-                "3. SQLite executes SEARCH on 'movements' via index 'idx_movements_product_id' for each product.",
-                "4. Correlated aggregation computes non-persisted real-time stock balance in memory.",
-                "5. Zero mutable counter column exists — guarantees 100% historical accuracy and 3NF/BCNF normalization."
+                "1. Client accesses relational view 'v_inventory_summary'.",
+                "2. SQLite parser builds execution tree: SCAN table 'products' in PK order.",
+                "3. SQLite performs SEARCH on 'categories' using PRIMARY KEY (id).",
+                "4. SQLite executes SEARCH on 'movements' via index 'idx_movements_product_id' for each product.",
+                "5. Aggregates SUM(IN) - SUM(OUT) in memory and evaluates 'stock <= reorder_threshold' to set low-stock flag.",
+                "6. Normalization: Zero mutable stock counter — guarantees non-repudiation and eliminates lost-update anomalies."
             ],
         },
         "trigger_negative_stock": {
             "title": "Trigger Defense — Overdraft Prevention Guard",
-            "sql": "INSERT INTO movements (product_id, type, qty, note, created_by) VALUES (1, 'OUT', 999999, 'Direct SQL overdraft', 'debug_probe');",
+            "sql": "INSERT INTO movements (product_id, type, qty, note, created_by) VALUES (1, 'OUT', 999999, 'Direct SQL overdraft attempt', 'probe_actor');",
             "mode": "trigger",
             "process_steps": [
-                "1. Application opens write transaction with exclusive write lock (BEGIN IMMEDIATE).",
+                "1. Application initiates write transaction with immediate write lock (BEGIN IMMEDIATE).",
                 "2. SQLite fires trigger 'prevent_negative_stock' BEFORE INSERT WHEN NEW.type = 'OUT'.",
-                "3. Trigger evaluates subquery: (SELECT COALESCE(SUM(IN) - SUM(OUT), 0) FROM movements) < NEW.qty.",
+                "3. Trigger evaluates subquery: (SELECT COALESCE(SUM(IN) - SUM(OUT), 0) FROM movements WHERE product_id = 1) < 999999.",
                 "4. Available balance is less than 999,999 -> Trigger executes RAISE(ABORT, 'SECURITY VIOLATION: Insufficient stock.').",
                 "5. SQLite halts statement immediately and rolls back; inventory never drops below zero."
             ],
@@ -601,90 +753,76 @@ def run_sql_probe(probe_type: str) -> dict:
         },
         "trigger_audit_update": {
             "title": "Trigger Defense — Block UPDATE on Audit Log",
-            "sql": "UPDATE audit_log SET details = 'Forged entry' WHERE id = 1;",
+            "sql": "UPDATE audit_log SET details = 'manipulated' WHERE id = 1;",
             "mode": "trigger",
             "process_steps": [
-                "1. Attacker attempts to modify historical audit block #1.",
-                "2. SQLite storage engine intercepts with BEFORE UPDATE trigger 'prevent_audit_update'.",
-                "3. Trigger unconditionally aborts with RAISE(ABORT, 'SECURITY VIOLATION: Audit log is immutable.').",
-                "4. Cryptographic record and HMAC signature are protected from unauthorized modification."
-            ],
-        },
-        "trigger_audit_delete": {
-            "title": "Trigger Defense — Block DELETE on Audit Log",
-            "sql": "DELETE FROM audit_log WHERE id = 1;",
-            "mode": "trigger",
-            "process_steps": [
-                "1. Attacker attempts to delete audit block #1 to hide evidence.",
-                "2. SQLite storage engine intercepts with BEFORE DELETE trigger 'prevent_audit_delete'.",
-                "3. Trigger aborts with RAISE(ABORT, 'SECURITY VIOLATION: Audit log is immutable.').",
-                "4. Continuous 1..N block contiguity is guaranteed."
+                "1. Process attempts direct SQL UPDATE on cryptographic audit_log block #1.",
+                "2. SQLite storage engine intercepts query with BEFORE UPDATE trigger 'prevent_audit_update'.",
+                "3. Trigger calls RAISE(ABORT, 'SECURITY VIOLATION: Audit log is immutable.').",
+                "4. Direct modification fails instantly at the database kernel level."
             ],
         },
         "trigger_product_delete": {
-            "title": "Trigger Defense — Block DELETE on Products",
+            "title": "Referential Guard — Block DELETE on Products",
             "sql": "DELETE FROM products WHERE id = 1;",
             "mode": "trigger",
             "process_steps": [
-                "1. Attacker attempts to drop product row #1.",
-                "2. SQLite storage engine intercepts with BEFORE DELETE trigger 'prevent_product_delete'.",
-                "3. Trigger aborts with RAISE(ABORT, 'SECURITY VIOLATION: Products cannot be deleted.').",
-                "4. Product catalog remains immutable; orphaned movement references are impossible."
+                "1. User attempts to DELETE product #1 from catalog.",
+                "2. Engine intercepts with 'prevent_product_delete' BEFORE DELETE trigger.",
+                "3. Aborts with RAISE(ABORT, 'SECURITY VIOLATION: Products cannot be deleted; historical ledger requires referential integrity.').",
+                "4. Eliminates orphaned rows in movements and preserves audit trail."
             ],
         },
     }
 
     if probe_type not in probes:
-        return {"status": "error", "message": f"Unknown probe: {probe_type}"}
+        return {"error": f"Unknown probe type: {probe_type}"}
 
-    spec = probes[probe_type]
-    conn = get_connection()
+    cfg = probes[probe_type]
     t0 = _time.perf_counter()
+    conn = get_connection()
     try:
         cur = conn.cursor()
-        if spec["mode"] == "explain":
-            cur.execute(spec["sql"])
+        if cfg["mode"] == "explain":
+            cur.execute(cfg["sql"])
             rows = [dict(r) for r in cur.fetchall()]
-            elapsed_ms = round((_time.perf_counter() - t0) * 1000, 3)
-            plan_lines = [f"[{r.get('id', idx)}] {r.get('detail', '')}" for idx, r in enumerate(rows)]
+            elapsed_ms = (_time.perf_counter() - t0) * 1000
             return {
                 "probe": probe_type,
-                "title": spec["title"],
-                "sql": spec["sql"],
-                "outcome": "QUERY PLAN GENERATED",
-                "blocked_by_trigger": False,
-                "elapsed_ms": elapsed_ms,
-                "engine_output": "\n".join(plan_lines) if plan_lines else "SCAN products / SEARCH movements",
-                "process_steps": spec.get("process_steps", []),
+                "title": cfg["title"],
+                "sql": cfg["sql"],
+                "status": "EXPLAINED",
+                "result": "Query plan generated successfully.",
+                "plan_rows": rows,
+                "process_steps": cfg["process_steps"],
+                "execution_time_ms": round(elapsed_ms, 3),
             }
         else:
-            conn.execute("BEGIN IMMEDIATE;")
             try:
-                cur.execute(spec["sql"])
-                conn.execute("ROLLBACK;")
-                elapsed_ms = round((_time.perf_counter() - t0) * 1000, 3)
+                with write_tx(conn):
+                    cur.execute(cfg["sql"])
+                elapsed_ms = (_time.perf_counter() - t0) * 1000
                 return {
                     "probe": probe_type,
-                    "title": spec["title"],
-                    "sql": spec["sql"],
-                    "outcome": "UNEXPECTEDLY ALLOWED (ROLLED BACK)",
-                    "blocked_by_trigger": False,
-                    "elapsed_ms": elapsed_ms,
-                    "engine_output": "Statement did not trigger an abort (rolled back safely).",
-                    "process_steps": spec.get("process_steps", []),
+                    "title": cfg["title"],
+                    "sql": cfg["sql"],
+                    "status": "UNEXPECTED_SUCCESS",
+                    "result": "Query succeeded unexpectedly.",
+                    "process_steps": cfg["process_steps"],
+                    "execution_time_ms": round(elapsed_ms, 3),
                 }
-            except (sqlite3.IntegrityError, sqlite3.OperationalError) as exc:
-                conn.execute("ROLLBACK;")
-                elapsed_ms = round((_time.perf_counter() - t0) * 1000, 3)
+            except (sqlite3.IntegrityError, sqlite3.OperationalError) as err:
+                elapsed_ms = (_time.perf_counter() - t0) * 1000
+                err_str = str(err)
+                intercepted = "SECURITY VIOLATION" in err_str
                 return {
                     "probe": probe_type,
-                    "title": spec["title"],
-                    "sql": spec["sql"],
-                    "outcome": "ABORTED BY SQLITE ENGINE TRIGGER",
-                    "blocked_by_trigger": True,
-                    "elapsed_ms": elapsed_ms,
-                    "engine_output": f"sqlite3.IntegrityError: {str(exc)}",
-                    "process_steps": spec.get("process_steps", []),
+                    "title": cfg["title"],
+                    "sql": cfg["sql"],
+                    "status": "INTERCEPTED" if intercepted else "ERROR",
+                    "result": err_str,
+                    "process_steps": cfg["process_steps"],
+                    "execution_time_ms": round(elapsed_ms, 3),
                 }
     finally:
         conn.close()

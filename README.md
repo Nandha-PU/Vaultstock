@@ -1,23 +1,26 @@
 # VaultStock
-### Relational Inventory & Tamper-Evident Audit Ledger
+### Relational Inventory Management & Cryptographic Audit Ledger
 
-VaultStock is a minimalist, tamper-evident inventory control system built to demonstrate relational database integrity, SQLite triggers, and cryptographic audit chaining without feature bloat.
+VaultStock is a textbook-grade relational inventory management and loss-prevention system built to demonstrate **Third Normal Form (3NF) relational database design**, **SQLite trigger-level immutability**, and **cryptographic HMAC-SHA256 audit chaining** without feature bloat.
 
 ---
 
-## Core Design
+## Core Database Design
 
-Traditional inventory tables update a mutable counter (`UPDATE products SET stock = stock - 5`), which loses history and allows silent manipulation.
+Traditional inventory tables update a mutable counter (`UPDATE products SET stock = stock - 5`), which loses historical context, invites lost-update race conditions, and allows silent insider fraud.
 
-VaultStock enforces two core database guarantees:
-1. **Immutable Append-Only Ledger (`movements`)**:
-   - The `products` table has no `quantity` column.
-   - Stock balances are computed dynamically via `SUM(IN) - SUM(OUT)`.
-   - Database triggers (`BEFORE UPDATE`, `BEFORE DELETE`, `BEFORE INSERT`) block negative balances and reject any attempt to edit or delete historical rows.
-2. **Cryptographic Audit Chain (`audit_log`)**:
-   - Every product creation and stock movement is recorded in an append-only audit table.
-   - Each block stores an **HMAC-SHA256** digest over `(prev_hash, id, action, actor, ref_table, ref_id, payload, timestamp)`.
-   - `verify_audit_chain()` checks block contiguity (`1..N`), `prev_hash` linkage, HMAC digests, row-to-payload reconciliation, and an external head anchor (`data/audit_head.json`).
+VaultStock enforces strict database guarantees:
+1. **Dynamic Stock Derivation & 3NF Normalization**:
+   - The `products` table has **no `quantity` column**.
+   - Current stock and total valuations are computed in real time via the relational view `v_inventory_summary` using `SUM(IN) - SUM(OUT)`.
+   - Reorder threshold alerts are dynamically surfaced via `v_low_stock_alerts`.
+2. **Immutable Append-Only Movement Ledger (`movements`)**:
+   - Every inward receipt and outward issue is an immutable transaction linked to `suppliers` and `locations`.
+   - SQLite triggers (`BEFORE UPDATE`, `BEFORE DELETE`) permanently abort any attempt to edit or delete historical rows.
+   - The `prevent_negative_stock` trigger rejects any issue that exceeds available balance at the storage layer.
+3. **Cryptographic Audit Chain (`audit_log`)**:
+   - Every product creation and movement is signed into an append-only audit log chained like **Git commits** using HMAC-SHA256.
+   - The 5-Point Verifier checks **Contiguity** ($1..N$), **Linkage** (`prev_hash`), **HMAC Integrity**, **Relational Reconciliation**, and an out-of-band **Head Anchor** (`data/audit_head.json`).
 
 ---
 
@@ -27,17 +30,18 @@ VaultStock enforces two core database guarantees:
 python run_dev.py
 ```
 
-- **Frontend UI**: [http://localhost:3000](http://localhost:3000)
-- **Swagger API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Unified Web Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **Interactive Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Run Automated Test Suite**: `python extras/test_suite.py`
 
 ---
 
 ## Demo Accounts
 
-| Role | Username | Default Demo Password | Capabilities |
+| Role | Username | Default Password | Capabilities |
 |---|---|---|---|
-| **Admin** | `admin` | `vault-admin-2026` | Add products, record `IN`/`OUT` movements, verify chain, simulate tamper, reset DB |
-| **Staff** | `staff` | `vault-staff-2026` | Record `IN`/`OUT` movements, view inventory and audit chain, verify integrity |
+| **Admin** | `admin` | `vault-admin-2026` | Create products, record IN/OUT movements, view diagnostics, simulate disk tamper, reset DB |
+| **Staff** | `staff` | `vault-staff-2026` | Record IN/OUT movements, view inventory & audit chain, run integrity verification |
 
 ---
 
@@ -45,38 +49,24 @@ python run_dev.py
 
 ```
 vaultstock/
-├── api/                  # FastAPI backend, JWT auth & cryptographic engine
-│   ├── config.py         # Centralized configuration & environment loader
-│   ├── db.py             # SQLite WAL transactions, HMAC chain & verifier
-│   ├── main.py           # REST endpoints, RBAC dependencies & security headers
-│   └── security.py       # Salted PBKDF2-HMAC-SHA256 password hashing
-├── db/                   # Database definition
-│   └── schema.sql        # 4 core tables, CHECK constraints & immutability triggers
-├── web/                  # Browser dashboard (HTML/CSS/JS single-page app)
-│   ├── index.html        # Tabular ledger interface & modal dialogs
-│   ├── style.css         # Dark-mode utilitarian styling
-│   └── app.js            # Client logic, live tamper simulation & verification
-├── extras/               # Supplementary docs, viva guides & automated test suite
-│   ├── DATA_DICTIONARY.md # Column-level table schema definitions
-│   ├── ER_DIAGRAM.md      # Entity-Relationship diagram & cardinality rules
-│   ├── NORMALIZATION.md   # 1NF, 2NF, 3NF normalization proofs
-│   ├── PRESENTATION_GUIDE.md # 2-minute demo script & top viva answers
-│   ├── TEST_CASES.md      # Security & functional test matrix
-│   ├── THREAT_MODEL.md    # STRIDE threat model & attack analysis
-│   ├── test_suite.py      # Automated 26-step verification suite
-│   └── README.md          # Guide to extra documentation
-├── legacy/               # Archived / unused designs (PostgreSQL prototypes, old scripts)
-│   ├── postgres/          # Earlier PostgreSQL reference design scripts
-│   ├── dev.bat            # Deprecated batch launcher
-│   ├── dev.ps1            # Deprecated PowerShell launcher
-│   ├── SECURITY_PATCH_PLAN.md # Completed red-team sprint documentation
-│   └── README.md          # Legacy archive manifest
-├── data/                 # Local database storage & HMAC keys (auto-generated)
-│   ├── .audit_key
-│   ├── audit_head.json
-│   └── vaultstock.db
-├── requirements.txt      # Python dependencies
-├── .env.example          # Environment variable reference
-├── .gitignore            # Git exclusions
-└── run_dev.py            # Universal development server launcher
+├── api/                     # FastAPI backend, JWT auth & cryptographic engine
+│   ├── config.py            # Environment loader & security configuration
+│   ├── db.py                # SQLite WAL transactions, seed data & HMAC verifier
+│   ├── main.py              # REST API endpoints, Pydantic v2 models & RBAC
+│   └── security.py          # Salted PBKDF2-HMAC-SHA256 password hashing
+├── db/                      # Database definition
+│   └── schema.sql           # 3NF schema, indexes, views & immutability triggers
+├── web/                     # Unified Single-Page Application (SPA)
+│   ├── index.html           # Unified 4-tab dashboard interface
+│   ├── style.css            # Responsive design system (Light & Dark modes)
+│   └── app.js               # Reactive client logic, tamper demo & diagnostics
+├── extras/                  # Supplementary documentation & tests
+│   ├── VIVA_DEFENSE_GUIDE.md # 3-member presentation scripts & top 10 viva Q&As
+│   ├── ER_DIAGRAM.md        # Entity-Relationship diagram & cardinality rules
+│   ├── NORMALIZATION.md     # 1NF, 2NF, 3NF normalization proofs
+│   ├── test_suite.py        # Automated 24-step verification test suite
+│   └── ...
+├── data/                    # SQLite database & HMAC keys (auto-generated)
+├── requirements.txt         # Python dependencies
+└── run_dev.py               # Universal development server launcher
 ```

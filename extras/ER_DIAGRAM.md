@@ -2,10 +2,13 @@
 
 ```mermaid
 erDiagram
-    PRODUCTS ||--o{ MOVEMENTS : "tracks"
-    PRODUCTS ||--o| AUDIT_LOG : "audited by"
-    MOVEMENTS ||--o| AUDIT_LOG : "audited by"
-    USERS ||--o{ MOVEMENTS : "executes"
+    CATEGORIES ||--o{ PRODUCTS : "classifies (1:N)"
+    SUPPLIERS ||--o{ MOVEMENTS : "supplies (1:N)"
+    LOCATIONS ||--o{ MOVEMENTS : "stores (1:N)"
+    PRODUCTS ||--o{ MOVEMENTS : "tracks (1:N)"
+    PRODUCTS ||--o| AUDIT_LOG : "audited by (1:1)"
+    MOVEMENTS ||--o| AUDIT_LOG : "audited by (1:1)"
+    USERS ||--o{ MOVEMENTS : "authorizes"
     USERS ||--o{ AUDIT_LOG : "attributed in"
 
     USERS {
@@ -16,19 +19,47 @@ erDiagram
         datetime created_at
     }
 
+    CATEGORIES {
+        integer id PK
+        text code UK "2..16 chars"
+        text name "1..80 chars"
+        text description
+        datetime created_at
+    }
+
+    SUPPLIERS {
+        integer id PK
+        text name UK "2..100 chars"
+        text contact_email
+        text phone
+        datetime created_at
+    }
+
+    LOCATIONS {
+        integer id PK
+        text code UK "e.g. WH-A1"
+        text name "1..80 chars"
+        datetime created_at
+    }
+
     PRODUCTS {
         integer id PK
         text sku UK "length 3..32"
         text name "length 1..120"
+        integer category_id FK
         real unit_price "> 0"
+        integer reorder_threshold ">= 0"
         datetime created_at
     }
 
     MOVEMENTS {
         integer id PK
         integer product_id FK
+        integer supplier_id FK "Nullable (for IN receipts)"
+        integer location_id FK
         text type "IN | OUT"
         integer qty "1..1000000"
+        text reference_doc "PO / Dispatch Slip"
         text note "max 200 chars"
         text created_by "operator username"
         datetime created_at
@@ -52,34 +83,28 @@ erDiagram
 
 ## Relational Cardinalities & Constraints
 
-### 1. `PRODUCTS` to `MOVEMENTS` (1 : N)
-- **Cardinality:** One catalog product has zero or many historical movement entries.
-- **Foreign Key:** `movements.product_id REFERENCES products(id)`.
-- **Integrity Rule:** `products` cannot be deleted (`prevent_product_delete` trigger), ensuring historical movement references are permanently referentially intact.
+### 1. `CATEGORIES` to `PRODUCTS` (1 : N)
+- **Cardinality:** One product category classifies one or more catalog products.
+- **Foreign Key:** `products.category_id REFERENCES categories(id) ON DELETE RESTRICT`.
 
-### 2. `MOVEMENTS` to `AUDIT_LOG` (1 : 1 Polymorphic Reference)
+### 2. `SUPPLIERS` to `MOVEMENTS` (1 : N)
+- **Cardinality:** One supplier can fulfill zero or multiple inward stock receipts (`IN`).
+- **Foreign Key:** `movements.supplier_id REFERENCES suppliers(id) ON DELETE RESTRICT`.
+
+### 3. `LOCATIONS` to `MOVEMENTS` (1 : N)
+- **Cardinality:** One warehouse/retail location holds multiple stock movement transactions.
+- **Foreign Key:** `movements.location_id REFERENCES locations(id) ON DELETE RESTRICT`.
+
+### 4. `PRODUCTS` to `MOVEMENTS` (1 : N)
+- **Cardinality:** One catalog product has multiple historical ledger entries.
+- **Foreign Key:** `movements.product_id REFERENCES products(id) ON DELETE RESTRICT`.
+- **Integrity Rule:** `products` cannot be deleted (`prevent_product_delete` trigger) to ensure referential integrity for historical movements.
+
+### 5. `MOVEMENTS` & `PRODUCTS` to `AUDIT_LOG` (1 : 1 Polymorphic Reference)
 - **Constraint:** `UNIQUE(ref_table, ref_id)` on `audit_log`.
-- **Integrity Rule:** Every movement row inserted into `movements` is paired with exactly one corresponding entry in `audit_log` where `ref_table = 'movements'` and `ref_id = movements.id`.
+- **Integrity Rule:** Every product creation and movement insertion is paired with exactly one cryptographic audit block.
 
-### 3. `PRODUCTS` to `AUDIT_LOG` (1 : 1 Polymorphic Reference)
-- **Constraint:** `UNIQUE(ref_table, ref_id)` on `audit_log`.
-- **Integrity Rule:** Every product created is paired with an audit block where `ref_table = 'products'` and `ref_id = products.id`.
-
-### 4. `USERS` to `MOVEMENTS` & `AUDIT_LOG` (Logical Attribution)
-- Every transaction captures the authenticated username (`created_by`, `actor`) from the decoded JWT payload.
-
-### 5. `AUDIT_LOG` to `AUDIT_LOG` (Self-Referential Cryptographic Chaining)
-- Block $\#k$ embeds `prev_hash` equal to `row_hash` of block $\#(k-1)$.
+### 6. `AUDIT_LOG` to `AUDIT_LOG` (Self-Referential Cryptographic Chaining)
+- Block $\#k$ stores `prev_hash` equal to `row_hash` of block $\#(k-1)$.
 - Block $\#1$ (Genesis) sets `prev_hash = "0000000000000000000000000000000000000000000000000000000000000000"`.
 - Guaranteed continuous sequence without gaps via contiguity verification ($id = 1 \dots N$).
-
----
-
-## Design Decision: Derived Balances vs. Mutable Quantity
-
-| Attribute | Traditional Approach (Anti-pattern) | VaultStock Architecture |
-|---|---|---|
-| **Stock Storage** | Stored in `products.stock` as an integer. | **Derived attribute:** Computed on demand via `SUM(IN) - SUM(OUT)` from `movements`. |
-| **Updates** | Direct `UPDATE products SET stock = stock - ?`. | **Append-only:** `INSERT INTO movements (type, qty, ...)` followed by trigger validation. |
-| **Auditability** | Lost history; cannot trace when, why, or who altered quantities. | Complete chronological paper trail of every physical unit entering or leaving the vault. |
-| **Concurrency Anomaly** | Lost updates, race condition oversells, phantom counts. | Serialized atomic writes (`BEGIN IMMEDIATE`), database trigger guards against negative balances. |

@@ -25,6 +25,7 @@ from api.db import (
     get_connection,
     get_db_debug_info,
     init_db,
+    inspect_table_or_view,
     reset_demo_db,
     run_sql_probe,
     sync_anchor_to_latest,
@@ -41,8 +42,8 @@ logger = logging.getLogger("vaultstock")
 # App instance with documentation conditionally hidden in production
 app = FastAPI(
     title="VaultStock",
-    description="Minimalist Tamper-Evident Inventory Control System",
-    version="2.1.0",
+    description="Relational Inventory Management & Tamper-Evident Audit Ledger",
+    version="3.0.0",
     docs_url="/docs" if DEMO_MODE else None,
     redoc_url=None,
     openapi_url="/openapi.json" if DEMO_MODE else None,
@@ -132,7 +133,9 @@ class LoginRequest(_Strict):
 class ProductCreate(_Strict):
     sku: str = Field(min_length=3, max_length=32, pattern=r"^[A-Z0-9][A-Z0-9_-]*$")
     name: str = Field(min_length=1, max_length=120)
+    category_id: int = Field(default=1, gt=0, le=2_147_483_647)
     unit_price: float = Field(gt=0, le=10_000_000, allow_inf_nan=False)
+    reorder_threshold: int = Field(default=10, ge=0, le=100_000)
 
     @field_validator("sku", mode="before")
     @classmethod
@@ -150,16 +153,29 @@ class ProductCreate(_Strict):
 
 class MovementCreate(_Strict):
     product_id: int = Field(gt=0, le=2_147_483_647)
+    supplier_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
+    location_id: Optional[int] = Field(default=1, gt=0, le=2_147_483_647)
     type: Literal["IN", "OUT"]
     qty: int = Field(gt=0, le=1_000_000)
-    note: str = Field(default="Standard stock operation", max_length=200)
+    reference_doc: Optional[str] = Field(default=None, max_length=60)
+    note: str = Field(default="Standard inventory operation", max_length=200)
 
-    @field_validator("note")
+    @field_validator("note", "reference_doc")
     @classmethod
-    def sanitize_note(cls, v: str) -> str:
-        if any(ord(c) < 32 for c in v):
+    def sanitize_text(cls, v: Optional[str]) -> Optional[str]:
+        if v and any(ord(c) < 32 for c in v):
             raise ValueError("Control characters are not permitted")
         return v
+
+class SqlProbeRequest(_Strict):
+    probe_type: Literal[
+        "explain_stock",
+        "trigger_movement_update",
+        "trigger_movement_delete",
+        "trigger_audit_update",
+        "trigger_product_delete",
+        "trigger_negative_stock",
+    ]
 
 # -----------------------------------------------------------------------------
 # Authentication & RBAC Dependencies
@@ -217,7 +233,7 @@ require_admin = require_role("admin")
 require_any = require_role("admin", "staff")
 
 # -----------------------------------------------------------------------------
-# 1. AUTHENTICATION & USER PROFILE
+# 1. AUTHENTICATION & CONFIG
 # -----------------------------------------------------------------------------
 @app.post("/api/login")
 def login(req: LoginRequest, request: Request):
@@ -259,7 +275,8 @@ def get_public_config():
     """Returns non-sensitive public runtime configuration for frontend adaptation."""
     return {
         "demo_mode": DEMO_MODE,
-        "version": "2.1.0",
+        "version": "3.0.0",
+        "app_title": "VaultStock Inventory",
     }
 
 @app.get("/api/me")
@@ -272,25 +289,83 @@ def get_profile(user: dict = Depends(require_any)):
     }
 
 # -----------------------------------------------------------------------------
-# 2. INVENTORY & DYNAMIC STOCK
+# 2. RELATIONAL LOOKUPS (CATEGORIES, SUPPLIERS, LOCATIONS)
+# -----------------------------------------------------------------------------
+@app.get("/api/categories")
+def list_categories(user: dict = Depends(require_any)):
+    """Returns all product classification categories."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, code, name, description FROM categories ORDER BY id ASC;")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+@app.get("/api/suppliers")
+def list_suppliers(user: dict = Depends(require_any)):
+    """Returns all approved inventory suppliers."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, contact_email, phone FROM suppliers ORDER BY id ASC;")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+@app.get("/api/locations")
+def list_locations(user: dict = Depends(require_any)):
+    """Returns all storage warehouses and retail sections."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, code, name FROM locations ORDER BY id ASC;")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+# -----------------------------------------------------------------------------
+# 3. INVENTORY & DYNAMIC STOCK (VIEWS & TRANSACTIONS)
 # -----------------------------------------------------------------------------
 @app.get("/api/products")
 def list_products(user: dict = Depends(require_any)):
-    """Retrieves all products alongside their dynamically computed stock balance."""
+    """Retrieves all products alongside dynamic stock balances derived from view v_inventory_summary."""
     conn = get_connection()
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT 
-                p.id, 
-                p.sku, 
-                p.name, 
-                p.unit_price,
-                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.qty ELSE -m.qty END), 0) AS current_stock
-            FROM products p
-            LEFT JOIN movements m ON p.id = m.product_id
-            GROUP BY p.id
-            ORDER BY p.id ASC;
+            SELECT
+                product_id AS id,
+                product_id,
+                sku,
+                product_name AS name,
+                product_name,
+                category_id,
+                category_name,
+                category_code,
+                unit_price,
+                reorder_threshold,
+                current_stock,
+                total_valuation,
+                is_low_stock,
+                created_at
+            FROM v_inventory_summary
+            ORDER BY product_id ASC;
+        """)
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+@app.get("/api/inventory/alerts")
+def list_low_stock_alerts(user: dict = Depends(require_any)):
+    """Retrieves products that have reached or dropped below reorder threshold."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT product_id AS id, sku, product_name AS name, category_name, unit_price, reorder_threshold, current_stock
+            FROM v_low_stock_alerts
+            ORDER BY current_stock ASC;
         """)
         return [dict(row) for row in cur.fetchall()]
     finally:
@@ -303,14 +378,25 @@ def create_product(prod: ProductCreate, user: dict = Depends(require_admin)):
     try:
         with write_tx(conn):
             cur = conn.cursor()
+            # Verify category exists
+            cur.execute("SELECT id, name FROM categories WHERE id = ?;", (prod.category_id,))
+            cat = cur.fetchone()
+            if not cat:
+                raise HTTPException(status_code=400, detail="Specified category does not exist")
+
             cur.execute(
-                "INSERT INTO products (sku, name, unit_price) VALUES (?, ?, ?);",
-                (prod.sku, prod.name, prod.unit_price),
+                """
+                INSERT INTO products (sku, name, category_id, unit_price, reorder_threshold)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                (prod.sku, prod.name, prod.category_id, prod.unit_price, prod.reorder_threshold),
             )
             product_id = cur.lastrowid
             payload = {
+                "category_id": prod.category_id,
                 "id": product_id,
                 "name": prod.name,
+                "reorder_threshold": prod.reorder_threshold,
                 "sku": prod.sku,
                 "unit_price": prod.unit_price,
             }
@@ -321,9 +407,11 @@ def create_product(prod: ProductCreate, user: dict = Depends(require_admin)):
                 ref_table="products",
                 ref_id=product_id,
                 payload=payload,
-                details=f"Created product '{prod.name}' (SKU: {prod.sku}) by {user['username']}",
+                details=f"Created product '{prod.name}' ({prod.sku}) in category '{cat['name']}'",
             )
         sync_anchor_to_latest(conn)
+    except HTTPException:
+        raise
     except sqlite3.IntegrityError as e:
         logger.warning("Product creation integrity error: %s", str(e))
         if "UNIQUE" in str(e).upper() and "SKU" in str(e).upper():
@@ -338,7 +426,7 @@ def create_product(prod: ProductCreate, user: dict = Depends(require_admin)):
     return {"message": "Product created successfully", "product_id": product_id}
 
 # -----------------------------------------------------------------------------
-# 3. STOCK MOVEMENTS (IMMUTABLE LEDGER)
+# 4. STOCK MOVEMENTS (IMMUTABLE LEDGER)
 # -----------------------------------------------------------------------------
 @app.post("/api/movements")
 def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
@@ -368,9 +456,18 @@ def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
 
             # 3. Insert append-only movement
             cur.execute("""
-                INSERT INTO movements (product_id, type, qty, note, created_by)
-                VALUES (?, ?, ?, ?, ?);
-            """, (move.product_id, move.type, move.qty, move.note, user["username"]))
+                INSERT INTO movements (product_id, supplier_id, location_id, type, qty, reference_doc, note, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                move.product_id,
+                move.supplier_id,
+                move.location_id or 1,
+                move.type,
+                move.qty,
+                move.reference_doc,
+                move.note,
+                user["username"],
+            ))
             m_id = cur.lastrowid
 
             # 4. Seal in cryptographic audit chain
@@ -378,11 +475,15 @@ def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
             payload = {
                 "created_by": user["username"],
                 "id": m_id,
+                "location_id": move.location_id or 1,
                 "note": move.note,
                 "product_id": move.product_id,
                 "qty": move.qty,
+                "reference_doc": move.reference_doc,
+                "supplier_id": move.supplier_id,
                 "type": move.type,
             }
+            ref_info = f" [Ref: {move.reference_doc}]" if move.reference_doc else ""
             append_audit_entry(
                 conn=conn,
                 action=action_name,
@@ -390,7 +491,7 @@ def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
                 ref_table="movements",
                 ref_id=m_id,
                 payload=payload,
-                details=f"{move.type} {move.qty} units of '{item['name']}' (Operator: {user['username']})",
+                details=f"{move.type} {move.qty} units of '{item['name']}' (Operator: {user['username']}){ref_info}",
             )
         sync_anchor_to_latest(conn)
     except HTTPException:
@@ -416,23 +517,38 @@ def list_movements(
     offset: int = 0,
     user: dict = Depends(require_any),
 ):
+    """Retrieves chronological stock movements joined via v_ledger_history view."""
     safe_limit = max(1, min(limit, 200))
     safe_offset = max(0, offset)
     conn = get_connection()
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT m.id, p.name as product_name, p.sku, m.type, m.qty, m.note, m.created_by, m.created_at
-            FROM movements m
-            JOIN products p ON m.product_id = p.id
-            ORDER BY m.id DESC LIMIT ? OFFSET ?;
+            SELECT
+                movement_id AS id,
+                movement_id,
+                created_at,
+                type,
+                qty,
+                product_id,
+                sku,
+                product_name,
+                category_name,
+                supplier_name,
+                location_name,
+                location_code,
+                reference_doc,
+                note,
+                created_by
+            FROM v_ledger_history
+            LIMIT ? OFFSET ?;
         """, (safe_limit, safe_offset))
         return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
 
 # -----------------------------------------------------------------------------
-# 4. AUDIT & CRYPTOGRAPHIC VERIFICATION
+# 5. AUDIT & CRYPTOGRAPHIC VERIFICATION
 # -----------------------------------------------------------------------------
 @app.get("/api/audit")
 def list_audit_trail(
@@ -467,32 +583,30 @@ def get_audit_head(user: dict = Depends(require_admin)):
         raise HTTPException(status_code=404, detail="Anchor not found")
     return anchor
 
-
-class SqlProbeRequest(_Strict):
-    probe_type: Literal[
-        "explain_stock",
-        "trigger_movement_update",
-        "trigger_movement_delete",
-        "trigger_audit_update",
-        "trigger_audit_delete",
-        "trigger_product_delete",
-        "trigger_negative_stock",
-    ]
-
-
+# -----------------------------------------------------------------------------
+# 6. ENGINE DIAGNOSTICS & PROBES
+# -----------------------------------------------------------------------------
 @app.get("/api/debug/internals")
 def debug_internals(user: dict = Depends(require_admin)):
-    """Returns SQLite engine PRAGMAs, row counts, active triggers, and anchor state."""
+    """Returns SQLite engine PRAGMAs, row counts, active triggers, views, and anchor state."""
     return get_db_debug_info()
-
 
 @app.post("/api/debug/sql-probe")
 def debug_sql_probe(req: SqlProbeRequest, user: dict = Depends(require_admin)):
     """Executes a read-only or safely rolled-back SQLite engine trigger/query-plan probe."""
     return run_sql_probe(req.probe_type)
 
+@app.get("/api/debug/table/{object_name}")
+def debug_inspect_table(object_name: str, limit: int = 50, user: dict = Depends(require_any)):
+    """Returns table/view schema (columns, data types, PK/FK constraints, DDL) and raw DB rows."""
+    try:
+        return inspect_table_or_view(object_name, limit=limit)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # -----------------------------------------------------------------------------
-# 5. DEMO CONTROL ENDPOINTS (Conditional on DEMO_MODE)
+# 7. DEMO CONTROL ENDPOINTS (Conditional on DEMO_MODE)
 # -----------------------------------------------------------------------------
 if DEMO_MODE:
     @app.post("/api/audit/tamper-demo")
@@ -506,4 +620,4 @@ if DEMO_MODE:
     @app.post("/api/reset-demo")
     def reset_database(user: dict = Depends(require_admin)):
         reset_demo_db(admin_actor=user["username"])
-        return {"message": "Database reset to pristine state with zero anomalies."}
+        return {"message": "Database reset to pristine relational state with zero anomalies."}

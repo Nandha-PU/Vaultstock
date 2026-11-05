@@ -1,5 +1,6 @@
 // ============================================================================
-// VaultStock — Inventory Management Client (index.html)
+// VaultStock — Unified Client Logic (app.js)
+// Unified Single-Page Application: Inventory, Operations, Audit, Diagnostics
 // ============================================================================
 
 const API_BASE =
@@ -18,10 +19,15 @@ let currentUser = {
   demo_mode: false,
 };
 
-let currentMovementType = "IN";
 let cachedProducts = [];
+let cachedCategories = [];
+let cachedSuppliers = [];
+let cachedLocations = [];
 
+// ============================================================================
 // DOM References
+// ============================================================================
+// Login
 const loginOverlay = document.getElementById("loginOverlay");
 const loginForm = document.getElementById("loginForm");
 const loginUsername = document.getElementById("loginUsername");
@@ -32,54 +38,106 @@ const btnLoginThemeToggle = document.getElementById("btnLoginThemeToggle");
 const btnQuickAdmin = document.getElementById("btnQuickAdmin");
 const btnQuickStaff = document.getElementById("btnQuickStaff");
 
+// Navigation & Global UI
 const mainNavbar = document.getElementById("mainNavbar");
 const mainContent = document.getElementById("mainContent");
 const btnBrand = document.getElementById("btnBrand");
 const btnNavInventory = document.getElementById("btnNavInventory");
-const btnNavDemo = document.getElementById("btnNavDemo");
-const btnNavDebug = document.getElementById("btnNavDebug");
-const navDebugDot = document.getElementById("navDebugDot");
+const btnNavOperations = document.getElementById("btnNavOperations");
+const btnNavAudit = document.getElementById("btnNavAudit");
+const btnNavDiagnostics = document.getElementById("btnNavDiagnostics");
+const chainStatusDot = document.getElementById("chainStatusDot");
+const chainStatusText = document.getElementById("chainStatusText");
+const btnOpenHelp = document.getElementById("btnOpenHelp");
 const btnThemeToggle = document.getElementById("btnThemeToggle");
 const userBadge = document.getElementById("userBadge");
 const btnLogout = document.getElementById("btnLogout");
 const actionNotice = document.getElementById("actionNotice");
+const globalNotice = document.getElementById("globalNotice");
 
-const kpiTotalSkus = document.getElementById("kpiTotalSkus");
+// Tabs
+const tabInventory = document.getElementById("tabInventory");
+const tabOperations = document.getElementById("tabOperations");
+const tabAudit = document.getElementById("tabAudit");
+const tabDiagnostics = document.getElementById("tabDiagnostics");
+
+// Tab 1: Inventory
+const kpiTotalProducts = document.getElementById("kpiTotalProducts");
 const kpiTotalUnits = document.getElementById("kpiTotalUnits");
-const kpiTotalValue = document.getElementById("kpiTotalValue");
-const dashboardChainBadge = document.getElementById("dashboardChainBadge");
-const dashboardChainText = document.getElementById("dashboardChainText");
-const btnOpenDemo = document.getElementById("btnOpenDemo");
-const btnOpenDebug = document.getElementById("btnOpenDebug");
-
+const kpiTotalValuation = document.getElementById("kpiTotalValuation");
+const kpiLowStockCount = document.getElementById("kpiLowStockCount");
+const kpiLowStockSub = document.getElementById("kpiLowStockSub");
+const lowStockBanner = document.getElementById("lowStockBanner");
+const lowStockBannerText = document.getElementById("lowStockBannerText");
 const productSearchInput = document.getElementById("productSearchInput");
+const categoryFilterSelect = document.getElementById("categoryFilterSelect");
 const stockFilterSelect = document.getElementById("stockFilterSelect");
-const productTableBody = document.getElementById("productTableBody");
-const movementFeed = document.getElementById("movementFeed");
-const btnRefreshDashboard = document.getElementById("btnRefreshDashboard");
-
-const movementModal = document.getElementById("movementModal");
-const btnCloseModal = document.getElementById("btnCloseModal");
-const btnCancelModal = document.getElementById("btnCancelModal");
-const movementForm = document.getElementById("movementForm");
-const modalProductTitle = document.getElementById("modalProductTitle");
-const modalProductId = document.getElementById("modalProductId");
-
-const productModal = document.getElementById("productModal");
+const btnRefreshInventory = document.getElementById("btnRefreshInventory");
 const btnOpenAddProduct = document.getElementById("btnOpenAddProduct");
-const btnCloseProductModal = document.getElementById("btnCloseProductModal");
-const btnCancelProductModal = document.getElementById("btnCancelProductModal");
-const productForm = document.getElementById("productForm");
+const productTableBody = document.getElementById("productTableBody");
 
-const helpModal = document.getElementById("helpModal");
-const btnOpenHelp = document.getElementById("btnOpenHelp");
-const btnCloseHelp = document.getElementById("btnCloseHelp");
-const btnDoneHelp = document.getElementById("btnDoneHelp");
+// Tab 2: Operations
+const formReceiveStock = document.getElementById("formReceiveStock");
+const receiveProductSelect = document.getElementById("receiveProductSelect");
+const receiveSupplierSelect = document.getElementById("receiveSupplierSelect");
+const receiveLocationSelect = document.getElementById("receiveLocationSelect");
+const receiveQty = document.getElementById("receiveQty");
+const receiveRefDoc = document.getElementById("receiveRefDoc");
+const receiveNote = document.getElementById("receiveNote");
+
+const formDispatchStock = document.getElementById("formDispatchStock");
+const dispatchProductSelect = document.getElementById("dispatchProductSelect");
+const dispatchLocationSelect = document.getElementById("dispatchLocationSelect");
+const dispatchQty = document.getElementById("dispatchQty");
+const dispatchRefDoc = document.getElementById("dispatchRefDoc");
+const dispatchNote = document.getElementById("dispatchNote");
+const dispatchBalanceSpan = document.getElementById("dispatchBalanceSpan");
+const movementTableBody = document.getElementById("movementTableBody");
+
+// Tab 3: Audit
+const auditHeroBadge = document.getElementById("auditHeroBadge");
+const auditHeroTitle = document.getElementById("auditHeroTitle");
+const auditHeroSubtitle = document.getElementById("auditHeroSubtitle");
+const btnRunAuditVerify = document.getElementById("btnRunAuditVerify");
+const btnSimulateTamper = document.getElementById("btnSimulateTamper");
+const btnResetDatabase = document.getElementById("btnResetDatabase");
+const auditBlockCountBadge = document.getElementById("auditBlockCountBadge");
+const auditTableBody = document.getElementById("auditTableBody");
+
+// Tab 4: Diagnostics
+const diagSqliteVersion = document.getElementById("diagSqliteVersion");
+const diagWalSub = document.getElementById("diagWalSub");
+const diagDbSize = document.getElementById("diagDbSize");
+const diagPageSub = document.getElementById("diagPageSub");
+const diagFkStatus = document.getElementById("diagFkStatus");
+const diagBusyTimeout = document.getElementById("diagBusyTimeout");
+const diagRowCountsGrid = document.getElementById("diagRowCountsGrid");
+const probeResultBox = document.getElementById("probeResultBox");
+const probeTitle = document.getElementById("probeTitle");
+const probeStatusBadge = document.getElementById("probeStatusBadge");
+const probeSql = document.getElementById("probeSql");
+const probeEngineOutput = document.getElementById("probeEngineOutput");
+const probeStepsList = document.getElementById("probeStepsList");
+const diagTriggersViewsList = document.getElementById("diagTriggersViewsList");
+
+// Modals
+const addProductModal = document.getElementById("addProductModal");
+const btnCloseAddProduct = document.getElementById("btnCloseAddProduct");
+const btnCancelAddProduct = document.getElementById("btnCancelAddProduct");
+const formAddProduct = document.getElementById("formAddProduct");
+const newProdSku = document.getElementById("newProdSku");
+const newProdName = document.getElementById("newProdName");
+const newProdCategory = document.getElementById("newProdCategory");
+const newProdPrice = document.getElementById("newProdPrice");
+const newProdThreshold = document.getElementById("newProdThreshold");
+
+const vivaGuideModal = document.getElementById("vivaGuideModal");
+const btnCloseVivaGuide = document.getElementById("btnCloseVivaGuide");
+const btnDoneVivaGuide = document.getElementById("btnDoneVivaGuide");
 
 // ============================================================================
-// Theme Management (Light Mode Default / Dark Mode Toggle)
+// Theme Management
 // ============================================================================
-
 function applyTheme(theme) {
   const isDark = theme === "dark";
   const themeVal = isDark ? "dark" : "light";
@@ -99,305 +157,362 @@ function applyTheme(theme) {
   document.querySelectorAll(".btn-theme-toggle").forEach((btn) => {
     btn.textContent = label;
   });
-
-  try {
-    localStorage.setItem(THEME_KEY, themeVal);
-  } catch (e) {
-    // Ignore storage restrictions
-  }
 }
 
 function toggleTheme() {
-  const isDark =
-    document.documentElement.getAttribute("data-theme") === "dark" ||
-    document.documentElement.classList.contains("dark");
-  applyTheme(isDark ? "light" : "dark");
+  const current = localStorage.getItem(THEME_KEY) || "light";
+  const next = current === "dark" ? "light" : "dark";
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (e) {}
+  applyTheme(next);
 }
 
-(function initTheme() {
+// ============================================================================
+// Notifications & Alerts
+// ============================================================================
+let noticeTimer = null;
+function showNotice(message, type = "success") {
+  if (!actionNotice) return;
+  actionNotice.className = `notice notice-${type}`;
+  actionNotice.textContent = message;
+  globalNotice.classList.remove("hidden");
+
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    globalNotice.classList.add("hidden");
+  }, 5000);
+}
+
+// ============================================================================
+// API Fetch Helper
+// ============================================================================
+async function apiCall(endpoint, options = {}) {
+  const url = `${API_BASE}${endpoint}`;
+  const headers = options.headers ? { ...options.headers } : {};
+
+  if (currentUser.token) {
+    headers["Authorization"] = `Bearer ${currentUser.token}`;
+  }
+  if (options.body && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+
   try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === "dark" || saved === "light") {
-      applyTheme(saved);
-      return;
+    const res = await fetch(url, { ...options, headers });
+    if (res.status === 401) {
+      handleUnauthorized();
+      throw new Error("Session expired. Please sign in again.");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = data.detail || (typeof data === "string" ? data : `Error ${res.status}`);
+      throw new Error(msg);
+    }
+    return data;
+  } catch (err) {
+    throw err;
+  }
+}
+
+// ============================================================================
+// Authentication & Session
+// ============================================================================
+async function checkPublicConfig() {
+  try {
+    const res = await fetch(`${API_BASE}/config`);
+    if (res.ok) {
+      const cfg = await res.json();
+      if (cfg.demo_mode && demoHint) {
+        demoHint.classList.remove("hidden");
+      }
     }
   } catch (e) {}
-  applyTheme("light");
-})();
-
-if (btnThemeToggle) btnThemeToggle.addEventListener("click", toggleTheme);
-if (btnLoginThemeToggle) btnLoginThemeToggle.addEventListener("click", toggleTheme);
-
-// ============================================================================
-// Navigation Buttons (No Hyperlinks)
-// ============================================================================
-
-if (btnBrand) {
-  btnBrand.addEventListener("click", () => {
-    window.location.href = "index.html";
-  });
 }
 
-if (btnNavInventory) {
-  btnNavInventory.addEventListener("click", () => {
-    window.location.href = "index.html";
-  });
-}
-
-if (btnNavDemo) {
-  btnNavDemo.addEventListener("click", () => {
-    window.location.href = "demo.html";
-  });
-}
-
-if (btnNavDebug) {
-  btnNavDebug.addEventListener("click", () => {
-    window.location.href = "debug.html";
-  });
-}
-
-if (btnOpenDemo) {
-  btnOpenDemo.addEventListener("click", () => {
-    window.location.href = "demo.html";
-  });
-}
-
-if (btnOpenDebug) {
-  btnOpenDebug.addEventListener("click", () => {
-    window.location.href = "debug.html";
-  });
-}
-
-// ============================================================================
-// Help Guide Modal
-// ============================================================================
-
-if (btnOpenHelp) {
-  btnOpenHelp.addEventListener("click", () => helpModal?.classList.remove("hidden"));
-}
-if (btnCloseHelp) {
-  btnCloseHelp.addEventListener("click", () => helpModal?.classList.add("hidden"));
-}
-if (btnDoneHelp) {
-  btnDoneHelp.addEventListener("click", () => helpModal?.classList.add("hidden"));
-}
-
-// ============================================================================
-// Helpers & API Client
-// ============================================================================
-
-function esc(value) {
-  return String(value ?? "").replace(/[&<>"'`]/g, (ch) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-    "`": "&#96;",
-  })[ch]);
-}
-
-function showNotice(text, isError = false) {
-  if (!text) {
-    actionNotice.classList.add("hidden");
-    return;
-  }
-  actionNotice.textContent = text;
-  actionNotice.className = isError ? "notice notice-error" : "notice notice-info";
-}
-
-function saveSession(userObj) {
+function saveSession(user) {
+  currentUser = { ...user };
   try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(userObj));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
   } catch (e) {}
+}
+
+function loadSession() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (raw) {
+      currentUser = JSON.parse(raw);
+      return Boolean(currentUser.token);
+    }
+  } catch (e) {}
+  return false;
 }
 
 function clearSession() {
+  currentUser = { id: null, username: null, role: null, token: null, demo_mode: false };
   try {
     sessionStorage.removeItem(SESSION_KEY);
   } catch (e) {}
 }
 
-async function apiFetch(endpoint, options = {}) {
-  const headers = {
-    "Content-Type": "application/json",
-    ...(options.headers || {}),
-  };
-  if (currentUser.token) {
-    headers["Authorization"] = `Bearer ${currentUser.token}`;
-  }
-
-  const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-  if (res.status === 401) {
-    clearSession();
-    showLoginOverlay("Session expired. Please sign in again.");
-    throw new Error("Authentication required");
-  }
-  return res;
+function handleUnauthorized() {
+  clearSession();
+  showLogin();
 }
 
-// ============================================================================
-// Authentication & RBAC Visibility
-// ============================================================================
-
-async function checkPublicDemoMode() {
-  try {
-    const res = await fetch(`${API_BASE}/config`);
-    if (res.ok) {
-      const cfg = await res.json();
-      demoHint.classList.toggle("hidden", !cfg.demo_mode);
-    }
-  } catch (e) {}
-}
-
-function showLoginOverlay(message = "") {
-  currentUser = { id: null, username: null, role: null, token: null, demo_mode: false };
+function showLogin() {
+  loginOverlay.classList.remove("hidden");
   mainNavbar.classList.add("hidden");
   mainContent.classList.add("hidden");
-  loginOverlay.classList.remove("hidden");
-
-  checkPublicDemoMode();
-
-  if (message) {
-    loginError.textContent = message;
-    loginError.classList.remove("hidden");
-  } else {
-    loginError.classList.add("hidden");
-  }
-
+  globalNotice.classList.add("hidden");
   loginPassword.value = "";
-  loginUsername.focus();
 }
 
-function showAuthenticatedUI() {
+function showApp() {
   loginOverlay.classList.add("hidden");
   mainNavbar.classList.remove("hidden");
   mainContent.classList.remove("hidden");
 
-  userBadge.textContent = `${currentUser.username} · ${currentUser.role}`;
+  // User badge
+  userBadge.textContent = `${currentUser.username} (${currentUser.role.toUpperCase()})`;
+  userBadge.className = `user-label role-${currentUser.role}`;
 
+  // RBAC permissions visibility
   const isAdmin = currentUser.role === "admin";
   document.querySelectorAll(".admin-only").forEach((el) => {
-    el.classList.toggle("hidden", !isAdmin);
+    if (isAdmin) {
+      el.classList.remove("hidden");
+    } else {
+      el.classList.add("hidden");
+    }
   });
-  document.querySelectorAll(".staff-only").forEach((el) => {
-    el.classList.toggle("hidden", isAdmin);
-  });
+
+  // Load initial data
+  loadAllData();
 }
 
-loginForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const username = loginUsername.value.trim();
-  const password = loginPassword.value;
-  if (!username || !password) return;
-
+async function handleLogin(username, password) {
+  loginError.classList.add("hidden");
   try {
-    loginError.classList.add("hidden");
     const res = await fetch(`${API_BASE}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-
-    if (res.status === 429) {
-      const retryAfter = res.headers.get("Retry-After") || "900";
-      throw new Error(`Too many login attempts. Retry after ${retryAfter}s.`);
-    }
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Invalid username or password");
-    }
-
     const data = await res.json();
-    currentUser = {
-      id: data.id,
-      username: data.username,
-      role: data.role,
-      token: data.token,
-      demo_mode: data.demo_mode,
-    };
-    saveSession(currentUser);
-
-    showNotice("");
-    showAuthenticatedUI();
-    await refreshDashboard();
+    if (!res.ok) {
+      throw new Error(data.detail || "Invalid login credentials");
+    }
+    saveSession(data);
+    showApp();
+    showNotice(`Welcome back, ${data.username}!`, "success");
   } catch (err) {
-    loginError.textContent = err.message || "Sign in failed";
+    loginError.textContent = err.message;
     loginError.classList.remove("hidden");
   }
-});
-
-btnLogout.addEventListener("click", () => {
-  clearSession();
-  showLoginOverlay("Signed out.");
-});
-
-if (btnQuickAdmin) {
-  btnQuickAdmin.addEventListener("click", () => {
-    loginUsername.value = "admin";
-    loginPassword.value = "vault-admin-2026";
-    loginForm.requestSubmit();
-  });
-}
-
-if (btnQuickStaff) {
-  btnQuickStaff.addEventListener("click", () => {
-    loginUsername.value = "staff";
-    loginPassword.value = "vault-staff-2026";
-    loginForm.requestSubmit();
-  });
 }
 
 // ============================================================================
-// Inventory Data & Rendering
+// Tab Navigation
 // ============================================================================
+const tabs = [
+  { btn: btnNavInventory, pane: tabInventory },
+  { btn: btnNavOperations, pane: tabOperations },
+  { btn: btnNavAudit, pane: tabAudit },
+  { btn: btnNavDiagnostics, pane: tabDiagnostics },
+];
 
-function renderProductsTable() {
-  const query = (productSearchInput?.value || "").trim().toLowerCase();
-  const stockFilter = stockFilterSelect?.value || "ALL";
+function switchTab(targetPane) {
+  tabs.forEach(({ btn, pane }) => {
+    if (pane === targetPane) {
+      pane.classList.remove("hidden");
+      pane.classList.add("active");
+      btn.classList.add("active");
+    } else {
+      pane.classList.add("hidden");
+      pane.classList.remove("active");
+      btn.classList.remove("active");
+    }
+  });
+
+  // Tab-specific refreshes
+  if (targetPane === tabInventory) {
+    loadProducts();
+  } else if (targetPane === tabOperations) {
+    loadOperationsData();
+  } else if (targetPane === tabAudit) {
+    loadAuditTrail();
+  } else if (targetPane === tabDiagnostics) {
+    loadDiagnostics();
+  }
+}
+
+// ============================================================================
+// Data Loading & Renderers
+// ============================================================================
+async function loadAllData() {
+  await Promise.allSettled([
+    loadLookups(),
+    loadProducts(),
+    checkAuditHealth(),
+  ]);
+}
+
+async function loadLookups() {
+  try {
+    const [cats, supps, locs] = await Promise.all([
+      apiCall("/categories"),
+      apiCall("/suppliers"),
+      apiCall("/locations"),
+    ]);
+    cachedCategories = cats;
+    cachedSuppliers = supps;
+    cachedLocations = locs;
+
+    populateSelects();
+  } catch (e) {
+    console.error("Failed to load relational lookups:", e);
+  }
+}
+
+function populateSelects() {
+  // Category Filter in Inventory
+  categoryFilterSelect.innerHTML = '<option value="">All Categories</option>';
+  cachedCategories.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = `${c.name} (${c.code})`;
+    categoryFilterSelect.appendChild(opt);
+  });
+
+  // Category in Add Product Modal
+  newProdCategory.innerHTML = '<option value="">-- Choose Category --</option>';
+  cachedCategories.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = `${c.name} (${c.code})`;
+    newProdCategory.appendChild(opt);
+  });
+
+  // Supplier in Receive Stock
+  receiveSupplierSelect.innerHTML = '<option value="">-- Choose Supplier --</option>';
+  cachedSuppliers.forEach((s) => {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = s.name;
+    receiveSupplierSelect.appendChild(opt);
+  });
+
+  // Location in Receive Stock & Dispatch
+  const locOptions = cachedLocations
+    .map((l) => `<option value="${l.id}">${l.name} (${l.code})</option>`)
+    .join("");
+  receiveLocationSelect.innerHTML = '<option value="">-- Choose Location --</option>' + locOptions;
+  dispatchLocationSelect.innerHTML = '<option value="">-- Choose Location --</option>' + locOptions;
+}
+
+// ----------------------------------------------------------------------------
+// Tab 1: Products & Catalog
+// ----------------------------------------------------------------------------
+async function loadProducts() {
+  try {
+    const products = await apiCall("/products");
+    cachedProducts = products;
+    renderInventory();
+    populateProductSelects();
+  } catch (err) {
+    productTableBody.innerHTML = `<tr><td colspan="9" class="text-center text-error">Failed to load inventory: ${err.message}</td></tr>`;
+  }
+}
+
+function populateProductSelects() {
+  const pOpts = cachedProducts
+    .map((p) => `<option value="${p.id}">${p.name} [${p.sku}] (Current Stock: ${p.current_stock})</option>`)
+    .join("");
+
+  receiveProductSelect.innerHTML = '<option value="">-- Choose Product --</option>' + pOpts;
+  dispatchProductSelect.innerHTML = '<option value="">-- Choose Product --</option>' + pOpts;
+}
+
+function renderInventory() {
+  const searchTerm = (productSearchInput.value || "").trim().toLowerCase();
+  const selectedCat = categoryFilterSelect.value;
+  const stockFilter = stockFilterSelect.value;
+
+  let totalSkus = cachedProducts.length;
+  let totalUnits = 0;
+  let totalValuation = 0;
+  let lowStockCount = 0;
+  let lowStockNames = [];
 
   const filtered = cachedProducts.filter((p) => {
-    const matchesSearch =
-      !query ||
-      p.sku.toLowerCase().includes(query) ||
-      p.name.toLowerCase().includes(query);
-    const stock = Number(p.current_stock);
-    const matchesStock =
-      stockFilter === "ALL" ||
-      (stockFilter === "OK" && stock > 5) ||
-      (stockFilter === "LOW" && stock <= 5);
-    return matchesSearch && matchesStock;
+    totalUnits += p.current_stock;
+    totalValuation += p.total_valuation || (p.current_stock * p.unit_price);
+
+    if (p.is_low_stock) {
+      lowStockCount++;
+      lowStockNames.push(`${p.name} (${p.current_stock}/${p.reorder_threshold})`);
+    }
+
+    // Filter by search
+    if (searchTerm) {
+      const matchSku = p.sku.toLowerCase().includes(searchTerm);
+      const matchName = p.name.toLowerCase().includes(searchTerm);
+      if (!matchSku && !matchName) return false;
+    }
+
+    // Filter by Category
+    if (selectedCat && String(p.category_id) !== String(selectedCat)) {
+      return false;
+    }
+
+    // Filter by Stock status
+    if (stockFilter === "LOW" && !p.is_low_stock) return false;
+    if (stockFilter === "IN_STOCK" && p.is_low_stock) return false;
+
+    return true;
   });
 
+  // Update KPI Cards
+  kpiTotalProducts.textContent = totalSkus;
+  kpiTotalUnits.textContent = totalUnits.toLocaleString();
+  kpiTotalValuation.textContent = `$${totalValuation.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  kpiLowStockCount.textContent = lowStockCount;
+
+  if (lowStockCount > 0) {
+    kpiLowStockSub.textContent = `${lowStockCount} item(s) need replenishment`;
+    lowStockBanner.classList.remove("hidden");
+    lowStockBannerText.textContent = `The following items have reached or fallen below safety stock: ${lowStockNames.join(", ")}. Please issue a stock receipt.`;
+  } else {
+    kpiLowStockSub.textContent = "All stock levels optimal";
+    lowStockBanner.classList.add("hidden");
+  }
+
+  // Render Rows
   if (filtered.length === 0) {
-    productTableBody.innerHTML = `<tr><td colspan="6" class="empty-cell">No matching products found.</td></tr>`;
+    productTableBody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">No products matched the selected filters.</td></tr>`;
     return;
   }
 
   productTableBody.innerHTML = filtered
     .map((p) => {
-      const stock = Number(p.current_stock);
-      const isLow = stock <= 5;
-      const tagClass = isLow ? "tag tag-out" : "tag tag-in";
-      const statusLabel = stock === 0 ? "Out of Stock" : isLow ? "Low Stock" : "In Stock";
+      const statusBadge = p.is_low_stock
+        ? `<span class="badge badge-warning">LOW STOCK</span>`
+        : `<span class="badge badge-success">IN STOCK</span>`;
 
       return `
         <tr>
-          <td class="mono"><strong>${esc(p.sku)}</strong></td>
-          <td>${esc(p.name)}</td>
-          <td class="num">$${Number(p.unit_price).toFixed(2)}</td>
-          <td class="num"><strong>${stock}</strong></td>
-          <td><span class="${tagClass}">${statusLabel}</span></td>
+          <td><code class="sku-code">${escapeHtml(p.sku)}</code></td>
+          <td><strong>${escapeHtml(p.name)}</strong></td>
+          <td><span class="badge badge-secondary">${escapeHtml(p.category_name || "General")}</span></td>
+          <td class="text-right">$${p.unit_price.toFixed(2)}</td>
+          <td class="text-right"><strong>${p.current_stock.toLocaleString()}</strong></td>
+          <td class="text-right text-muted">$${(p.total_valuation || p.current_stock * p.unit_price).toFixed(2)}</td>
+          <td class="text-center text-muted">${p.reorder_threshold}</td>
+          <td class="text-center">${statusBadge}</td>
           <td class="text-right">
-            <div class="action-btn-group">
-              <button type="button" class="btn btn-sm btn-in js-move" data-id="${Number(p.id)}" data-name="${esc(p.name)}" data-dir="IN">
-                + In
-              </button>
-              <button type="button" class="btn btn-sm btn-out js-move" data-id="${Number(p.id)}" data-name="${esc(p.name)}" data-dir="OUT">
-                &minus; Out
-              </button>
-            </div>
+            <button type="button" class="btn btn-xs" onclick="quickPrepareReceive(${p.id})">+ Receive</button>
+            <button type="button" class="btn btn-xs" onclick="quickPrepareDispatch(${p.id})">- Issue</button>
           </td>
         </tr>
       `;
@@ -405,220 +520,622 @@ function renderProductsTable() {
     .join("");
 }
 
-function updateDashboardKpis() {
-  const totalSkus = cachedProducts.length;
-  const totalUnits = cachedProducts.reduce((acc, p) => acc + Number(p.current_stock), 0);
-  const totalVal = cachedProducts.reduce(
-    (acc, p) => acc + Number(p.current_stock) * Number(p.unit_price),
-    0
-  );
+window.quickPrepareReceive = function (productId) {
+  switchTab(tabOperations);
+  receiveProductSelect.value = productId;
+  receiveQty.focus();
+};
 
-  if (kpiTotalSkus) kpiTotalSkus.textContent = String(totalSkus);
-  if (kpiTotalUnits) kpiTotalUnits.textContent = totalUnits.toLocaleString();
-  if (kpiTotalValue) {
-    kpiTotalValue.textContent =
-      "$" + totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+window.quickPrepareDispatch = function (productId) {
+  switchTab(tabOperations);
+  dispatchProductSelect.value = productId;
+  updateDispatchBalance();
+  dispatchQty.focus();
+};
+
+// ----------------------------------------------------------------------------
+// Tab 2: Stock Operations (Receive & Dispatch)
+// ----------------------------------------------------------------------------
+async function loadOperationsData() {
+  await Promise.allSettled([
+    loadProducts(),
+    loadMovements(),
+  ]);
+}
+
+async function loadMovements() {
+  try {
+    const movements = await apiCall("/movements?limit=50");
+    if (!movements || movements.length === 0) {
+      movementTableBody.innerHTML = `<tr><td colspan="11" class="text-center text-muted">No stock movements recorded yet.</td></tr>`;
+      return;
+    }
+
+    movementTableBody.innerHTML = movements
+      .map((m) => {
+        const typeBadge =
+          m.type === "IN"
+            ? `<span class="badge badge-success">INWARD</span>`
+            : `<span class="badge badge-warning">OUTWARD</span>`;
+
+        const partnerOrDoc = m.type === "IN" ? m.supplier_name : "Customer Dispatch";
+
+        return `
+          <tr>
+            <td>#${m.id}</td>
+            <td class="text-muted"><small>${formatDate(m.created_at)}</small></td>
+            <td>${typeBadge}</td>
+            <td><strong>${escapeHtml(m.product_name)}</strong> <small class="text-muted">(${escapeHtml(m.sku)})</small></td>
+            <td><small class="badge badge-secondary">${escapeHtml(m.category_name || "-")}</small></td>
+            <td>${escapeHtml(partnerOrDoc || "-")}</td>
+            <td><small>${escapeHtml(m.location_name || "-")}</small></td>
+            <td class="text-right"><strong>${m.type === "IN" ? "+" : "-"}${m.qty.toLocaleString()}</strong></td>
+            <td><code>${escapeHtml(m.reference_doc || "-")}</code></td>
+            <td class="text-muted"><small>${escapeHtml(m.note || "-")}</small></td>
+            <td><small class="user-pill">${escapeHtml(m.created_by)}</small></td>
+          </tr>
+        `;
+      })
+      .join("");
+  } catch (err) {
+    movementTableBody.innerHTML = `<tr><td colspan="11" class="text-center text-error">Failed to load movements: ${err.message}</td></tr>`;
   }
 }
 
-async function fetchProducts() {
-  const res = await apiFetch("/products");
-  cachedProducts = await res.json();
-  updateDashboardKpis();
-  renderProductsTable();
+function updateDispatchBalance() {
+  const prodId = Number(dispatchProductSelect.value);
+  const prod = cachedProducts.find((p) => p.id === prodId);
+  if (prod) {
+    dispatchBalanceSpan.textContent = prod.current_stock.toLocaleString();
+    dispatchQty.max = prod.current_stock;
+  } else {
+    dispatchBalanceSpan.textContent = "-";
+    dispatchQty.removeAttribute("max");
+  }
 }
 
-async function fetchMovements() {
-  const res = await apiFetch("/movements");
-  const movements = await res.json();
+dispatchProductSelect.addEventListener("change", updateDispatchBalance);
 
-  if (movements.length === 0) {
-    movementFeed.innerHTML = `<tr><td colspan="7" class="empty-cell">No inventory movements recorded yet.</td></tr>`;
+// Handle Receive Stock (IN)
+formReceiveStock.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const prodId = Number(receiveProductSelect.value);
+  const suppId = receiveSupplierSelect.value ? Number(receiveSupplierSelect.value) : null;
+  const locId = receiveLocationSelect.value ? Number(receiveLocationSelect.value) : 1;
+  const qty = Number(receiveQty.value);
+  const refDoc = receiveRefDoc.value.trim() || null;
+  const note = receiveNote.value.trim() || "Standard supplier shipment intake";
+
+  try {
+    const res = await apiCall("/movements", {
+      method: "POST",
+      body: JSON.stringify({
+        product_id: prodId,
+        supplier_id: suppId,
+        location_id: locId,
+        type: "IN",
+        qty: qty,
+        reference_doc: refDoc,
+        note: note,
+      }),
+    });
+    showNotice(res.message || `Successfully received ${qty} units!`, "success");
+    formReceiveStock.reset();
+    await loadOperationsData();
+    checkAuditHealth();
+  } catch (err) {
+    showNotice(err.message, "error");
+  }
+});
+
+// Handle Dispatch Stock (OUT)
+formDispatchStock.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const prodId = Number(dispatchProductSelect.value);
+  const locId = dispatchLocationSelect.value ? Number(dispatchLocationSelect.value) : 1;
+  const qty = Number(dispatchQty.value);
+  const refDoc = dispatchRefDoc.value.trim() || null;
+  const note = dispatchNote.value.trim() || "Standard stock issue/dispatch";
+
+  const prod = cachedProducts.find((p) => p.id === prodId);
+  if (prod && qty > prod.current_stock) {
+    showNotice(`Cannot dispatch ${qty} units! Only ${prod.current_stock} available.`, "error");
     return;
   }
 
-  movementFeed.innerHTML = movements
-    .map((m) => {
-      const tagClass = m.type === "IN" ? "tag tag-in" : "tag tag-out";
-      const sign = m.type === "IN" ? "+" : "−";
+  try {
+    const res = await apiCall("/movements", {
+      method: "POST",
+      body: JSON.stringify({
+        product_id: prodId,
+        location_id: locId,
+        type: "OUT",
+        qty: qty,
+        reference_doc: refDoc,
+        note: note,
+      }),
+    });
+    showNotice(res.message || `Successfully dispatched ${qty} units!`, "success");
+    formDispatchStock.reset();
+    dispatchBalanceSpan.textContent = "-";
+    await loadOperationsData();
+    checkAuditHealth();
+  } catch (err) {
+    showNotice(err.message, "error");
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Tab 3: Audit Ledger & Tamper Demo
+// ----------------------------------------------------------------------------
+async function checkAuditHealth() {
+  try {
+    const verify = await apiCall("/audit/verify");
+    updateAuditUI(verify);
+  } catch (e) {
+    console.error("Health check error:", e);
+  }
+}
+
+async function loadAuditTrail() {
+  try {
+    const [blocks, verify] = await Promise.all([
+      apiCall("/audit?limit=50"),
+      apiCall("/audit/verify"),
+    ]);
+
+    updateAuditUI(verify);
+    renderAuditBlocks(blocks);
+  } catch (err) {
+    auditTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-error">Failed to load audit blocks: ${err.message}</td></tr>`;
+  }
+}
+
+function updateAuditUI(verify) {
+  const isOk = verify && verify.verified;
+
+  // Topbar indicator
+  if (isOk) {
+    chainStatusDot.className = "status-dot verified";
+    chainStatusText.textContent = "Audit Ledger: Verified";
+  } else {
+    chainStatusDot.className = "status-dot tampered";
+    chainStatusText.textContent = `Tamper Detected! (Block #${verify.broken_at_id || "?"})`;
+  }
+
+  // Hero Card
+  if (isOk) {
+    auditHeroBadge.className = "status-indicator-badge verified";
+    auditHeroBadge.textContent = "100% VERIFIED";
+    auditHeroTitle.textContent = "Cryptographic Audit Chain Intact";
+    auditHeroSubtitle.textContent = `All ${verify.total_blocks} blocks mathematically verified across Contiguity, Linkage, HMAC-SHA256, Relational Reconciliation, and External Anchor.`;
+  } else {
+    auditHeroBadge.className = "status-indicator-badge tampered";
+    auditHeroBadge.textContent = "TAMPER DETECTED";
+    auditHeroTitle.textContent = `Mathematical Violation at Block #${verify.broken_at_id || "Head"}`;
+    auditHeroSubtitle.textContent = `Security alert: ${verify.reason || "Hash chain mismatch or unkeyed direct file modification detected."}`;
+  }
+
+  // 5-Point Check Grid
+  const checks = verify.checks || {};
+  setCheckStatus("checkContiguity", checks.contiguity);
+  setCheckStatus("checkLinkage", checks.linkage);
+  setCheckStatus("checkIntegrity", checks.integrity);
+  setCheckStatus("checkReconciliation", checks.reconciliation);
+  setCheckStatus("checkAnchor", checks.anchor);
+}
+
+function setCheckStatus(elemId, passed) {
+  const el = document.getElementById(elemId);
+  if (!el) return;
+  const dot = el.querySelector(".check-dot");
+  if (passed) {
+    dot.className = "check-dot pass";
+    dot.textContent = "OK";
+  } else {
+    dot.className = "check-dot fail";
+    dot.textContent = "FAIL";
+  }
+}
+
+function renderAuditBlocks(blocks) {
+  auditBlockCountBadge.textContent = `${blocks.length} Blocks`;
+
+  if (!blocks || blocks.length === 0) {
+    auditTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No audit entries found.</td></tr>`;
+    return;
+  }
+
+  auditTableBody.innerHTML = blocks
+    .map((b) => {
       return `
         <tr>
-          <td class="mono">#${Number(m.id)}</td>
-          <td><strong>${esc(m.product_name)}</strong> <span class="mono text-muted">(${esc(m.sku)})</span></td>
-          <td><span class="${tagClass}">${esc(m.type)}</span></td>
-          <td class="num"><strong>${sign}${Number(m.qty)}</strong></td>
-          <td>${esc(m.note || "-")}</td>
-          <td class="mono">${esc(m.created_by)}</td>
-          <td class="mono text-muted">${esc(m.created_at || "-")}</td>
+          <td><strong class="block-num">#${b.id}</strong></td>
+          <td><span class="badge badge-secondary">${escapeHtml(b.action)}</span></td>
+          <td><span class="user-pill">${escapeHtml(b.actor)}</span></td>
+          <td><small>${escapeHtml(b.ref_table || "-")} ${b.ref_id ? `(#${b.ref_id})` : ""}</small></td>
+          <td class="text-muted"><small>${formatDate(b.timestamp)}</small></td>
+          <td><small>${escapeHtml(b.details)}</small></td>
+          <td>
+            <code class="hash-code" title="Full Hash: ${b.row_hash}">${b.row_hash.substring(0, 16)}...</code>
+          </td>
         </tr>
       `;
     })
     .join("");
 }
 
-async function fetchIntegrityStatusSummary() {
-  const res = await apiFetch("/audit/verify");
-  const result = await res.json();
-
-  if (result.verified) {
-    if (navDebugDot) navDebugDot.className = "status-dot verified";
-    if (dashboardChainBadge) {
-      dashboardChainBadge.className = "status-tag verified";
-      dashboardChainBadge.textContent = "Verified";
+btnRunAuditVerify.addEventListener("click", async () => {
+  btnRunAuditVerify.disabled = true;
+  btnRunAuditVerify.textContent = "Scanning...";
+  try {
+    const verify = await apiCall("/audit/verify");
+    updateAuditUI(verify);
+    if (verify.verified) {
+      showNotice("Integrity Scan complete: All audit blocks 100% valid!", "success");
+    } else {
+      showNotice(`Integrity Scan alert: ${verify.reason}`, "error");
     }
-    if (dashboardChainText) {
-      dashboardChainText.textContent = "All Records Intact";
-    }
-  } else {
-    if (navDebugDot) navDebugDot.className = "status-dot tampered";
-    if (dashboardChainBadge) {
-      dashboardChainBadge.className = "status-tag tampered";
-      dashboardChainBadge.textContent = "Tamper Alert";
-    }
-    if (dashboardChainText) {
-      dashboardChainText.textContent = `Anomaly at Block #${result.broken_at_id ?? "?"}`;
-    }
-  }
-}
-
-async function refreshDashboard() {
-  await Promise.all([fetchProducts(), fetchMovements(), fetchIntegrityStatusSummary()]);
-}
-
-if (productSearchInput) {
-  productSearchInput.addEventListener("input", renderProductsTable);
-}
-if (stockFilterSelect) {
-  stockFilterSelect.addEventListener("change", renderProductsTable);
-}
-if (btnRefreshDashboard) {
-  btnRefreshDashboard.addEventListener("click", async () => {
-    await refreshDashboard();
-    showNotice("Inventory refreshed.", false);
-  });
-}
-
-// ============================================================================
-// Modals & Forms
-// ============================================================================
-
-function openMovementModal(id, name, defaultType = "IN") {
-  modalProductId.value = Number(id);
-  modalProductTitle.textContent = `Adjust Stock — ${name}`;
-  document.getElementById("moveQty").value = 5;
-  document.getElementById("moveNote").value = "Standard stock operation";
-  setMovementType(defaultType);
-  movementModal.classList.remove("hidden");
-}
-
-function closeMovementModal() {
-  movementModal.classList.add("hidden");
-}
-
-function setMovementType(type) {
-  currentMovementType = type;
-  document.querySelectorAll(".btn-toggle").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.type === type);
-  });
-}
-
-productTableBody.addEventListener("click", (e) => {
-  const btn = e.target.closest(".js-move");
-  if (btn) {
-    openMovementModal(Number(btn.dataset.id), btn.dataset.name, btn.dataset.dir || "IN");
+  } catch (err) {
+    showNotice(err.message, "error");
+  } finally {
+    btnRunAuditVerify.disabled = false;
+    btnRunAuditVerify.textContent = "Verify Chain";
   }
 });
 
-document.querySelectorAll(".btn-toggle").forEach((btn) => {
-  btn.addEventListener("click", () => setMovementType(btn.dataset.type));
-});
-
-btnCloseModal.addEventListener("click", closeMovementModal);
-btnCancelModal.addEventListener("click", closeMovementModal);
-
-movementForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const productId = parseInt(modalProductId.value, 10);
-  const rawQty = document.getElementById("moveQty").value.trim();
-  const qty = Number(rawQty);
-  if (!Number.isInteger(qty) || qty < 1 || qty > 1000000) {
-    showNotice("Quantity must be between 1 and 1,000,000.", true);
+btnSimulateTamper.addEventListener("click", async () => {
+  if (!confirm("Simulate rogue disk-level tampering on Block #1? (Bypasses triggers and writes unkeyed SHA-256 hash to test cryptographic detection)")) {
     return;
   }
-  const note = document.getElementById("moveNote").value.trim();
+  try {
+    const res = await apiCall("/audit/tamper-demo", { method: "POST" });
+    showNotice("Tampering simulated on Block #1. Running verification scan...", "warning");
+    const verify = await apiCall("/audit/verify");
+    updateAuditUI(verify);
+    loadAuditTrail();
+  } catch (err) {
+    showNotice(err.message, "error");
+  }
+});
+
+btnResetDatabase.addEventListener("click", async () => {
+  if (!confirm("Reset database to clean relational baseline? All products, initial receipts, and audit chain will be cleanly reseeded.")) {
+    return;
+  }
+  try {
+    const res = await apiCall("/reset-demo", { method: "POST" });
+    showNotice(res.message || "Database reset successfully!", "success");
+    await loadAllData();
+    switchTab(tabInventory);
+  } catch (err) {
+    showNotice(err.message, "error");
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Tab 4: Engine Diagnostics & Probes
+// ----------------------------------------------------------------------------
+async function loadDiagnostics() {
+  try {
+    const info = await apiCall("/debug/internals");
+    diagSqliteVersion.textContent = `v${info.sqlite_version}`;
+    diagWalSub.textContent = `Journal: ${info.pragmas.journal_mode}`;
+    diagDbSize.textContent = `${(info.pragmas.db_size_bytes / 1024).toFixed(1)} KB`;
+    diagPageSub.textContent = `Page Size: ${info.pragmas.page_size_bytes}B`;
+    diagFkStatus.textContent = info.pragmas.foreign_keys ? "ENFORCED" : "OFF";
+    diagBusyTimeout.textContent = `${info.pragmas.busy_timeout_ms.toLocaleString()} ms`;
+
+    // Row counts (clickable to jump to table explorer)
+    const counts = info.row_counts || {};
+    diagRowCountsGrid.innerHTML = Object.entries(counts)
+      .map(([tbl, cnt]) => `
+        <div class="row-count-card" style="cursor: pointer;" onclick="selectExplorerTable('${tbl}')" title="Click to inspect ${tbl} table">
+          <span class="count-table">${tbl}</span>
+          <strong class="count-num">${cnt}</strong>
+        </div>
+      `)
+      .join("");
+
+    // Load default table in Explorer
+    const activeBtn = document.querySelector(".btn-db-table.active");
+    const defaultTbl = activeBtn ? activeBtn.getAttribute("data-table") : "products";
+    await loadTableExplorer(defaultTbl);
+
+    // Triggers and Views definitions
+    const triggers = info.triggers || [];
+    const views = info.views || [];
+    let html = "";
+
+    if (views.length > 0) {
+      html += `<h4>Compiled Relational Views (${views.length})</h4>`;
+      views.forEach((v) => {
+        html += `
+          <div class="def-box">
+            <div class="def-header"><strong>VIEW:</strong> <code>${escapeHtml(v.name)}</code></div>
+            <pre><code>${escapeHtml(v.sql || "")}</code></pre>
+          </div>
+        `;
+      });
+    }
+
+    if (triggers.length > 0) {
+      html += `<h4 class="mt-3">Active Engine Triggers (${triggers.length})</h4>`;
+      triggers.forEach((t) => {
+        html += `
+          <div class="def-box">
+            <div class="def-header"><strong>TRIGGER:</strong> <code>${escapeHtml(t.name)}</code> <small class="text-muted">(Table: ${escapeHtml(t.tbl_name)})</small></div>
+            <pre><code>${escapeHtml(t.sql || "")}</code></pre>
+          </div>
+        `;
+      });
+    }
+
+    diagTriggersViewsList.innerHTML = html;
+  } catch (err) {
+    diagTriggersViewsList.innerHTML = `<div class="notice notice-error">${err.message}</div>`;
+  }
+}
+
+// Live Database Table & Schema Explorer
+window.selectExplorerTable = async function (tableName) {
+  document.querySelectorAll(".btn-db-table").forEach((btn) => {
+    if (btn.getAttribute("data-table") === tableName) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+  await loadTableExplorer(tableName);
+};
+
+document.querySelectorAll(".btn-db-table").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const tbl = btn.getAttribute("data-table");
+    window.selectExplorerTable(tbl);
+  });
+});
+
+async function loadTableExplorer(tableName) {
+  const explorerRowCountBadge = document.getElementById("explorerRowCountBadge");
+  const explorerSchemaTitle = document.getElementById("explorerSchemaTitle");
+  const explorerColumnsBody = document.getElementById("explorerColumnsBody");
+  const explorerRowsTitle = document.getElementById("explorerRowsTitle");
+  const explorerRawHead = document.getElementById("explorerRawHead");
+  const explorerRawBody = document.getElementById("explorerRawBody");
+  const explorerDdlLabel = document.getElementById("explorerDdlLabel");
+  const explorerDdlCode = document.getElementById("explorerDdlCode");
+
+  if (!explorerColumnsBody) return;
 
   try {
-    const res = await apiFetch("/movements", {
+    const data = await apiCall(`/debug/table/${encodeURIComponent(tableName)}?limit=50`);
+    explorerRowCountBadge.textContent = `${data.total_rows} Rows (${data.object_type})`;
+    explorerSchemaTitle.textContent = `${data.object_type} Structure: ${data.name} (PRAGMA table_info & foreign_key_list)`;
+    explorerRowsTitle.textContent = `Actual Raw Database Rows: SELECT * FROM ${data.name} LIMIT 50;`;
+    explorerDdlLabel.textContent = `Compiled SQLite DDL (${data.object_type} ${data.name}):`;
+    explorerDdlCode.textContent = data.ddl_sql || "-- Built-in object";
+
+    // Build FK lookup map by column name
+    const fkMap = {};
+    (data.foreign_keys || []).forEach((fk) => {
+      fkMap[fk.column] = fk;
+    });
+
+    // Render column definitions
+    const cols = data.columns || [];
+    explorerColumnsBody.innerHTML = cols
+      .map((c) => {
+        let keyBadge = "-";
+        if (c.is_pk) {
+          keyBadge = `<span class="badge badge-success">PRIMARY KEY</span>`;
+        } else if (fkMap[c.name]) {
+          const fk = fkMap[c.name];
+          keyBadge = `<span class="badge badge-warning">FK &rarr; ${escapeHtml(fk.references_table)}(${escapeHtml(fk.references_column)}) [${escapeHtml(fk.on_delete)}]</span>`;
+        }
+        return `
+          <tr>
+            <td>${c.cid}</td>
+            <td><strong><code>${escapeHtml(c.name)}</code></strong></td>
+            <td><span class="badge badge-secondary">${escapeHtml(c.type)}</span></td>
+            <td>${c.notnull ? "NOT NULL" : "NULLABLE"}</td>
+            <td><code>${c.default_value !== null ? escapeHtml(String(c.default_value)) : "-"}</code></td>
+            <td>${keyBadge}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    // Render Raw Rows
+    const rows = data.rows || [];
+    if (cols.length > 0) {
+      explorerRawHead.innerHTML = `<tr>${cols.map((c) => `<th>${escapeHtml(c.name)}</th>`).join("")}</tr>`;
+    } else {
+      explorerRawHead.innerHTML = "";
+    }
+
+    if (rows.length === 0) {
+      explorerRawBody.innerHTML = `<tr><td colspan="${Math.max(1, cols.length)}" class="text-center text-muted">No rows in ${escapeHtml(data.name)}.</td></tr>`;
+    } else {
+      explorerRawBody.innerHTML = rows
+        .map((r) => {
+          const cells = cols
+            .map((c) => {
+              let val = r[c.name];
+              if (val === null || val === undefined) {
+                return `<td class="text-muted"><em>NULL</em></td>`;
+              }
+              let strVal = String(val);
+              if (strVal.length > 48) {
+                return `<td title="${escapeHtml(strVal)}"><code>${escapeHtml(strVal.substring(0, 45))}...</code></td>`;
+              }
+              return `<td>${escapeHtml(strVal)}</td>`;
+            })
+            .join("");
+          return `<tr>${cells}</tr>`;
+        })
+        .join("");
+    }
+  } catch (err) {
+    explorerColumnsBody.innerHTML = `<tr><td colspan="6" class="text-center text-error">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+// Interactive SQL Probe runner
+document.querySelectorAll(".btn-probe").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const probeType = btn.getAttribute("data-probe");
+    try {
+      const res = await apiCall("/debug/sql-probe", {
+        method: "POST",
+        body: JSON.stringify({ probe_type: probeType }),
+      });
+
+      probeResultBox.classList.remove("hidden");
+      probeTitle.textContent = `${res.title} (${res.execution_time_ms} ms)`;
+      probeStatusBadge.textContent = res.status;
+      probeStatusBadge.className = `badge ${res.status === "INTERCEPTED" ? "badge-success" : "badge-secondary"}`;
+      probeSql.textContent = res.sql;
+
+      if (res.plan_rows) {
+        probeEngineOutput.innerHTML = `<pre>${JSON.stringify(res.plan_rows, null, 2)}</pre>`;
+      } else {
+        probeEngineOutput.innerHTML = `<strong>Result:</strong> <code>${escapeHtml(res.result || "")}</code>`;
+      }
+
+      if (res.process_steps) {
+        probeStepsList.innerHTML = res.process_steps
+          .map((step) => `<li>${escapeHtml(step)}</li>`)
+          .join("");
+      }
+    } catch (err) {
+      showNotice(err.message, "error");
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Modals Handlers
+// ----------------------------------------------------------------------------
+btnOpenAddProduct.addEventListener("click", () => {
+  addProductModal.classList.remove("hidden");
+  newProdSku.focus();
+});
+btnCloseAddProduct.addEventListener("click", () => addProductModal.classList.add("hidden"));
+btnCancelAddProduct.addEventListener("click", () => addProductModal.classList.add("hidden"));
+
+formAddProduct.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const sku = newProdSku.value.trim().toUpperCase();
+  const name = newProdName.value.trim();
+  const catId = Number(newProdCategory.value);
+  const price = Number(newProdPrice.value);
+  const threshold = Number(newProdThreshold.value);
+
+  try {
+    const res = await apiCall("/products", {
       method: "POST",
       body: JSON.stringify({
-        product_id: productId,
-        type: currentMovementType,
-        qty: qty,
-        note: note || "Standard stock operation",
+        sku: sku,
+        name: name,
+        category_id: catId,
+        unit_price: price,
+        reorder_threshold: threshold,
       }),
     });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.detail || "Failed to record movement");
-    }
-
-    closeMovementModal();
-    showNotice(`Recorded ${currentMovementType} movement of ${qty} units.`, false);
-    await refreshDashboard();
+    showNotice(res.message || "Product created successfully!", "success");
+    addProductModal.classList.add("hidden");
+    formAddProduct.reset();
+    await loadProducts();
+    checkAuditHealth();
   } catch (err) {
-    showNotice(err.message, true);
+    showNotice(err.message, "error");
   }
 });
 
-btnOpenAddProduct.addEventListener("click", () => productModal.classList.remove("hidden"));
-btnCloseProductModal.addEventListener("click", () => productModal.classList.add("hidden"));
-btnCancelProductModal.addEventListener("click", () => productModal.classList.add("hidden"));
+btnOpenHelp.addEventListener("click", () => vivaGuideModal.classList.remove("hidden"));
+btnCloseVivaGuide.addEventListener("click", () => vivaGuideModal.classList.add("hidden"));
+btnDoneVivaGuide.addEventListener("click", () => vivaGuideModal.classList.add("hidden"));
 
-productForm.addEventListener("submit", async (e) => {
+// ----------------------------------------------------------------------------
+// Navigation and Filter Listeners
+// ----------------------------------------------------------------------------
+btnNavInventory.addEventListener("click", () => switchTab(tabInventory));
+btnNavOperations.addEventListener("click", () => switchTab(tabOperations));
+btnNavAudit.addEventListener("click", () => switchTab(tabAudit));
+btnNavDiagnostics.addEventListener("click", () => switchTab(tabDiagnostics));
+btnBrand.addEventListener("click", () => switchTab(tabInventory));
+
+productSearchInput.addEventListener("input", renderInventory);
+categoryFilterSelect.addEventListener("change", renderInventory);
+stockFilterSelect.addEventListener("change", renderInventory);
+btnRefreshInventory.addEventListener("click", loadProducts);
+
+// ----------------------------------------------------------------------------
+// Auth Form Listeners
+// ----------------------------------------------------------------------------
+loginForm.addEventListener("submit", (e) => {
   e.preventDefault();
-  const sku = document.getElementById("newSku").value.trim().toUpperCase();
-  const name = document.getElementById("newName").value.trim();
-  const unit_price = parseFloat(document.getElementById("newPrice").value);
+  handleLogin(loginUsername.value.trim(), loginPassword.value);
+});
 
-  try {
-    const res = await apiFetch("/products", {
-      method: "POST",
-      body: JSON.stringify({ sku, name, unit_price }),
-    });
+btnQuickAdmin.addEventListener("click", () => {
+  handleLogin("admin", "vault-admin-2026");
+});
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Could not create product");
-    }
+btnQuickStaff.addEventListener("click", () => {
+  handleLogin("staff", "vault-staff-2026");
+});
 
-    productForm.reset();
-    productModal.classList.add("hidden");
-    showNotice(`Added product ${name} (${sku}).`, false);
-    await refreshDashboard();
-  } catch (err) {
-    showNotice(err.message, true);
+btnLogout.addEventListener("click", () => {
+  clearSession();
+  showLogin();
+  showNotice("Signed out successfully.", "info");
+});
+
+btnThemeToggle.addEventListener("click", toggleTheme);
+btnLoginThemeToggle.addEventListener("click", toggleTheme);
+
+// ----------------------------------------------------------------------------
+// App Bootstrapping
+// ============================================================================
+window.addEventListener("DOMContentLoaded", () => {
+  const currentTheme = localStorage.getItem(THEME_KEY) || "light";
+  applyTheme(currentTheme);
+
+  checkPublicConfig();
+
+  if (loadSession()) {
+    showApp();
+  } else {
+    showLogin();
   }
 });
 
-// ============================================================================
-// Initialize Session
-// ============================================================================
+// Helper utilities
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
-(async function initApp() {
+function formatDate(isoStr) {
+  if (!isoStr) return "-";
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw);
-      if (saved && saved.token) {
-        currentUser = saved;
-        showAuthenticatedUI();
-        await refreshDashboard();
-        return;
-      }
-    }
+    const d = new Date(isoStr);
+    return d.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
   } catch (e) {
-    clearSession();
+    return isoStr;
   }
-  showLoginOverlay();
-})();
+}

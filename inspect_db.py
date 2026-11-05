@@ -17,7 +17,7 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from api.db import get_connection, init_db, ALLOWED_DB_OBJECTS
+from api.db import get_connection, init_db
 from api.config import DB_PATH
 
 
@@ -57,15 +57,18 @@ def inspect_object(conn: sqlite3.Connection, name: str) -> None:
         return
 
     obj_type = meta["type"].upper()
+    safe_name = name.replace('"', '""')
     print("\n" + "=" * 80)
     print(f" {obj_type}: {name}")
     print("=" * 80)
 
     # 1. Column info
-    cur.execute(f"PRAGMA table_info({name});")
+    cur.execute(f'PRAGMA table_info("{safe_name}");')
     cols = cur.fetchall()
-    cur.execute(f"PRAGMA foreign_key_list({name});") if obj_type == "TABLE" else None
-    fks = {fk["from"]: fk for fk in cur.fetchall()} if obj_type == "TABLE" else {}
+    fks = {}
+    if obj_type == "TABLE":
+        cur.execute(f'PRAGMA foreign_key_list("{safe_name}");')
+        fks = {fk["from"]: fk for fk in cur.fetchall()}
 
     col_rows = []
     for c in cols:
@@ -88,11 +91,19 @@ def inspect_object(conn: sqlite3.Connection, name: str) -> None:
     print_ascii_table(["#", "Column", "Type", "Nullable", "Default", "Constraint"], col_rows, max_col_width=45)
 
     # 2. Raw Rows
-    total = cur.execute(f"SELECT COUNT(*) FROM {name};").fetchone()[0]
-    cur.execute(f"SELECT * FROM {name} LIMIT 25;")
+    total = cur.execute(f'SELECT COUNT(*) FROM "{safe_name}";').fetchone()[0]
+    cur.execute(f'SELECT * FROM "{safe_name}" LIMIT 25;')
     raw = cur.fetchall()
     col_names = [c["name"] for c in cols]
-    data_rows = [[r[c] for c in col_names] for r in raw]
+    data_rows = []
+    for r in raw:
+        row_data = []
+        for c in col_names:
+            val = r[c]
+            if c == "password_hash" and val:
+                val = "pbkdf2_sha256$150000$***REDACTED***"
+            row_data.append(val)
+        data_rows.append(row_data)
 
     print(f"\n[Raw Data Rows (Showing {len(data_rows)} of {total} total rows)]:")
     if data_rows:
@@ -128,7 +139,8 @@ def interactive_shell(conn: sqlite3.Connection) -> None:
                 print_ascii_table(headers, [list(r) for r in rows], max_col_width=40)
                 print(f"({len(rows)} rows returned)")
             else:
-                conn.commit()
+                if conn.isolation_level is not None:
+                    conn.commit()
                 print(f"Query executed successfully. Rows affected: {cur.rowcount}")
         except Exception as e:
             print(f"[SQL Error]: {e}")
@@ -164,6 +176,7 @@ def main() -> None:
             "users",
             "v_inventory_summary",
             "v_low_stock_alerts",
+            "v_ledger_history",
         ]
         for obj in ordered_objects:
             inspect_object(conn, obj)

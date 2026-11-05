@@ -46,6 +46,7 @@ const btnNavInventory = document.getElementById("btnNavInventory");
 const btnNavOperations = document.getElementById("btnNavOperations");
 const btnNavAudit = document.getElementById("btnNavAudit");
 const btnNavDiagnostics = document.getElementById("btnNavDiagnostics");
+const btnNavFullDb = document.getElementById("btnNavFullDb");
 const chainStatusDot = document.getElementById("chainStatusDot");
 const chainStatusText = document.getElementById("chainStatusText");
 const btnOpenHelp = document.getElementById("btnOpenHelp");
@@ -60,6 +61,7 @@ const tabInventory = document.getElementById("tabInventory");
 const tabOperations = document.getElementById("tabOperations");
 const tabAudit = document.getElementById("tabAudit");
 const tabDiagnostics = document.getElementById("tabDiagnostics");
+const tabFullDb = document.getElementById("tabFullDb");
 
 // Tab 1: Inventory
 const kpiTotalProducts = document.getElementById("kpiTotalProducts");
@@ -198,21 +200,17 @@ async function apiCall(endpoint, options = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  try {
-    const res = await fetch(url, { ...options, headers });
-    if (res.status === 401) {
-      handleUnauthorized();
-      throw new Error("Session expired. Please sign in again.");
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = data.detail || (typeof data === "string" ? data : `Error ${res.status}`);
-      throw new Error(msg);
-    }
-    return data;
-  } catch (err) {
-    throw err;
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    handleUnauthorized();
+    throw new Error("Session expired. Please sign in again.");
   }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data.detail || (typeof data === "string" ? data : `Error ${res.status}`);
+    throw new Error(msg);
+  }
+  return data;
 }
 
 // ============================================================================
@@ -275,7 +273,7 @@ function showApp() {
 
   // User badge
   userBadge.textContent = `${currentUser.username} (${currentUser.role.toUpperCase()})`;
-  userBadge.className = `user-label role-${currentUser.role}`;
+  userBadge.className = "user-label";
 
   // RBAC permissions visibility
   const isAdmin = currentUser.role === "admin";
@@ -320,10 +318,12 @@ const tabs = [
   { btn: btnNavOperations, pane: tabOperations },
   { btn: btnNavAudit, pane: tabAudit },
   { btn: btnNavDiagnostics, pane: tabDiagnostics },
+  { btn: btnNavFullDb, pane: tabFullDb },
 ];
 
 function switchTab(targetPane) {
   tabs.forEach(({ btn, pane }) => {
+    if (!btn || !pane) return;
     if (pane === targetPane) {
       pane.classList.remove("hidden");
       pane.classList.add("active");
@@ -344,6 +344,8 @@ function switchTab(targetPane) {
     loadAuditTrail();
   } else if (targetPane === tabDiagnostics) {
     loadDiagnostics();
+  } else if (targetPane === tabFullDb) {
+    loadFullDbPage();
   }
 }
 
@@ -421,13 +423,13 @@ async function loadProducts() {
     renderInventory();
     populateProductSelects();
   } catch (err) {
-    productTableBody.innerHTML = `<tr><td colspan="9" class="text-center text-error">Failed to load inventory: ${err.message}</td></tr>`;
+    productTableBody.innerHTML = `<tr><td colspan="9" class="text-center text-error">Failed to load inventory: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
 function populateProductSelects() {
   const pOpts = cachedProducts
-    .map((p) => `<option value="${p.id}">${p.name} [${p.sku}] (Current Stock: ${p.current_stock})</option>`)
+    .map((p) => `<option value="${p.id}">${escapeHtml(p.name)} [${escapeHtml(p.sku)}] (Current Stock: ${p.current_stock})</option>`)
     .join("");
 
   receiveProductSelect.innerHTML = '<option value="">-- Choose Product --</option>' + pOpts;
@@ -511,8 +513,8 @@ function renderInventory() {
           <td class="text-center text-muted">${p.reorder_threshold}</td>
           <td class="text-center">${statusBadge}</td>
           <td class="text-right">
-            <button type="button" class="btn btn-xs" onclick="quickPrepareReceive(${p.id})">+ Receive</button>
-            <button type="button" class="btn btn-xs" onclick="quickPrepareDispatch(${p.id})">- Issue</button>
+            <button type="button" class="btn btn-xs btn-quick-recv" data-product-id="${p.id}">+ Receive</button>
+            <button type="button" class="btn btn-xs btn-quick-disp" data-product-id="${p.id}">- Issue</button>
           </td>
         </tr>
       `;
@@ -578,7 +580,7 @@ async function loadMovements() {
       })
       .join("");
   } catch (err) {
-    movementTableBody.innerHTML = `<tr><td colspan="11" class="text-center text-error">Failed to load movements: ${err.message}</td></tr>`;
+    movementTableBody.innerHTML = `<tr><td colspan="11" class="text-center text-error">Failed to load movements: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -603,6 +605,10 @@ formReceiveStock.addEventListener("submit", async (e) => {
   const suppId = receiveSupplierSelect.value ? Number(receiveSupplierSelect.value) : null;
   const locId = receiveLocationSelect.value ? Number(receiveLocationSelect.value) : 1;
   const qty = Number(receiveQty.value);
+  if (!Number.isInteger(qty) || qty < 1 || qty > 1000000) {
+    showNotice("Quantity must be a positive integer between 1 and 1,000,000.", "error");
+    return;
+  }
   const refDoc = receiveRefDoc.value.trim() || null;
   const note = receiveNote.value.trim() || "Standard supplier shipment intake";
 
@@ -634,6 +640,10 @@ formDispatchStock.addEventListener("submit", async (e) => {
   const prodId = Number(dispatchProductSelect.value);
   const locId = dispatchLocationSelect.value ? Number(dispatchLocationSelect.value) : 1;
   const qty = Number(dispatchQty.value);
+  if (!Number.isInteger(qty) || qty < 1 || qty > 1000000) {
+    showNotice("Quantity must be a positive integer between 1 and 1,000,000.", "error");
+    return;
+  }
   const refDoc = dispatchRefDoc.value.trim() || null;
   const note = dispatchNote.value.trim() || "Standard stock issue/dispatch";
 
@@ -687,7 +697,7 @@ async function loadAuditTrail() {
     updateAuditUI(verify);
     renderAuditBlocks(blocks);
   } catch (err) {
-    auditTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-error">Failed to load audit blocks: ${err.message}</td></tr>`;
+    auditTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-error">Failed to load audit blocks: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -757,7 +767,7 @@ function renderAuditBlocks(blocks) {
           <td class="text-muted"><small>${formatDate(b.timestamp)}</small></td>
           <td><small>${escapeHtml(b.details)}</small></td>
           <td>
-            <code class="hash-code" title="Full Hash: ${b.row_hash}">${b.row_hash.substring(0, 16)}...</code>
+            <code class="hash-code" title="Full Hash: ${escapeHtml(b.row_hash)}">${escapeHtml(b.row_hash.substring(0, 16))}...</code>
           </td>
         </tr>
       `;
@@ -814,8 +824,10 @@ btnResetDatabase.addEventListener("click", async () => {
 });
 
 // ----------------------------------------------------------------------------
-// Tab 4: Engine Diagnostics & Probes
+// Tab 4: Engine Diagnostics, Generated Visual ER Diagram & Full DB Dump
 // ----------------------------------------------------------------------------
+let cachedFullSchema = null;
+
 async function loadDiagnostics() {
   try {
     const info = await apiCall("/debug/internals");
@@ -830,12 +842,23 @@ async function loadDiagnostics() {
     const counts = info.row_counts || {};
     diagRowCountsGrid.innerHTML = Object.entries(counts)
       .map(([tbl, cnt]) => `
-        <div class="row-count-card" style="cursor: pointer;" onclick="selectExplorerTable('${tbl}')" title="Click to inspect ${tbl} table">
-          <span class="count-table">${tbl}</span>
-          <strong class="count-num">${cnt}</strong>
+        <div class="row-count-card" style="cursor: pointer;" data-explorer-table="${escapeHtml(tbl)}" title="Click to inspect ${escapeHtml(tbl)} table">
+          <span class="count-table">${escapeHtml(tbl)}</span>
+          <strong class="count-num">${Number(cnt)}</strong>
         </div>
       `)
       .join("");
+
+    // Fetch complete database schema & relationships for Generated SVG ER Diagram
+    try {
+      cachedFullSchema = await apiCall("/debug/full-schema?limit=50");
+      renderGeneratedSvgErDiagram(cachedFullSchema);
+    } catch (erErr) {
+      const svgBox = document.getElementById("erSvgContainer");
+      if (svgBox) {
+        svgBox.innerHTML = `<div class="notice notice-error">Failed to generate ER diagram: ${escapeHtml(erErr.message)}</div>`;
+      }
+    }
 
     // Load default table in Explorer
     const activeBtn = document.querySelector(".btn-db-table.active");
@@ -873,8 +896,401 @@ async function loadDiagnostics() {
 
     diagTriggersViewsList.innerHTML = html;
   } catch (err) {
-    diagTriggersViewsList.innerHTML = `<div class="notice notice-error">${err.message}</div>`;
+    diagTriggersViewsList.innerHTML = `<div class="notice notice-error">${escapeHtml(err.message)}</div>`;
   }
+}
+
+// Dynamically generates an interactive SVG Crow's Foot ER Diagram from live SQLite PRAGMA introspection
+function renderGeneratedSvgErDiagram(schemaData) {
+  const container = document.getElementById("erSvgContainer");
+  if (!container || !schemaData || !schemaData.tables) return;
+
+  const tableMap = {};
+  schemaData.tables.forEach((t) => {
+    tableMap[t.name] = t;
+  });
+
+  // Layout coordinates for the 7 physical 3NF tables across 3 architectural columns
+  const layout = {
+    categories: { x: 24,  y: 24,  w: 270 },
+    suppliers:  { x: 24,  y: 205, w: 270 },
+    locations:  { x: 24,  y: 405, w: 270 },
+    products:   { x: 435, y: 24,  w: 290 },
+    movements:  { x: 435, y: 265, w: 290 },
+    audit_log:  { x: 855, y: 24,  w: 280 },
+    users:      { x: 855, y: 315, w: 280 },
+  };
+
+  const rowHeight = 22;
+  const headerHeight = 30;
+  const boxMetrics = {};
+
+  Object.entries(layout).forEach(([tblName, pos]) => {
+    const tObj = tableMap[tblName];
+    const cols = tObj ? tObj.columns : [];
+    const h = headerHeight + cols.length * rowHeight + 8;
+    boxMetrics[tblName] = { ...pos, h, cols, totalRows: tObj ? tObj.total_rows : 0, fks: tObj ? tObj.foreign_keys : [] };
+  });
+
+  // Helper to draw a Crow's Foot connector between two points
+  // dirFrom: 'right' | 'left' | 'bottom', dirTo: 'left' | 'top' | 'right'
+  function drawCrowsFootConnector(x1, y1, x2, y2, label, isDashed = false, mode = "horizontal") {
+    const lineClass = isDashed ? "svg-rel-dashed" : "svg-rel-line";
+    let pathD = "";
+    let midX = (x1 + x2) / 2;
+    let midY = (y1 + y2) / 2;
+
+    if (mode === "vertical") {
+      pathD = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+    } else {
+      pathD = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+    }
+
+    // One-side ("||") marker near (x1, y1) and Many-side ("o{") crow's foot near (x2, y2)
+    let markers = "";
+    if (mode === "vertical") {
+      // Top is One (||), Bottom is Many (o{)
+      markers += `<line x1="${x1 - 6}" y1="${y1 + 6}" x2="${x1 + 6}" y2="${y1 + 6}" class="${lineClass}" />`;
+      markers += `<line x1="${x2}" y1="${y2 - 10}" x2="${x2 - 7}" y2="${y2}" class="${lineClass}" />`;
+      markers += `<line x1="${x2}" y1="${y2 - 10}" x2="${x2 + 7}" y2="${y2}" class="${lineClass}" />`;
+      markers += `<circle cx="${x2}" cy="${y2 - 13}" r="3" fill="var(--bg-elevated)" stroke="var(--accent)" stroke-width="1.4" />`;
+    } else {
+      // Left is One (||), Right is Many (o{)
+      const sign = x2 >= x1 ? 1 : -1;
+      markers += `<line x1="${x1 + 7 * sign}" y1="${y1 - 6}" x2="${x1 + 7 * sign}" y2="${y1 + 6}" class="${lineClass}" />`;
+      markers += `<line x1="${x2 - 10 * sign}" y1="${y2}" x2="${x2}" y2="${y2 - 6}" class="${lineClass}" />`;
+      markers += `<line x1="${x2 - 10 * sign}" y1="${y2}" x2="${x2}" y2="${y2 + 6}" class="${lineClass}" />`;
+      markers += `<circle cx="${x2 - 13 * sign}" cy="${y2}" r="3" fill="var(--bg-elevated)" stroke="var(--accent)" stroke-width="1.4" />`;
+    }
+
+    const labelW = label.length * 6.2 + 12;
+    const labelSvg = `
+      <rect x="${midX - labelW / 2}" y="${midY - 9}" width="${labelW}" height="18" rx="3" class="svg-rel-label-bg" />
+      <text x="${midX}" y="${midY + 3.5}" text-anchor="middle" class="svg-rel-label-text">${escapeHtml(label)}</text>
+    `;
+
+    return `<path d="${pathD}" class="${lineClass}" />${markers}${labelSvg}`;
+  }
+
+  // Compute connector coordinates
+  let connectorsSvg = "";
+  if (boxMetrics.categories && boxMetrics.products) {
+    // categories.id -> products.category_id
+    connectorsSvg += drawCrowsFootConnector(
+      boxMetrics.categories.x + boxMetrics.categories.w,
+      boxMetrics.categories.y + 42,
+      boxMetrics.products.x,
+      boxMetrics.products.y + 86,
+      "1:N (category_id)"
+    );
+  }
+  if (boxMetrics.products && boxMetrics.movements) {
+    // products.id -> movements.product_id
+    connectorsSvg += drawCrowsFootConnector(
+      boxMetrics.products.x + boxMetrics.products.w / 2,
+      boxMetrics.products.y + boxMetrics.products.h,
+      boxMetrics.movements.x + boxMetrics.movements.w / 2,
+      boxMetrics.movements.y,
+      "1:N (product_id)",
+      false,
+      "vertical"
+    );
+  }
+  if (boxMetrics.suppliers && boxMetrics.movements) {
+    // suppliers.id -> movements.supplier_id
+    connectorsSvg += drawCrowsFootConnector(
+      boxMetrics.suppliers.x + boxMetrics.suppliers.w,
+      boxMetrics.suppliers.y + 55,
+      boxMetrics.movements.x,
+      boxMetrics.movements.y + 130,
+      "1:N (supplier_id)"
+    );
+  }
+  if (boxMetrics.locations && boxMetrics.movements) {
+    // locations.id -> movements.location_id
+    connectorsSvg += drawCrowsFootConnector(
+      boxMetrics.locations.x + boxMetrics.locations.w,
+      boxMetrics.locations.y + 55,
+      boxMetrics.movements.x,
+      boxMetrics.movements.y + 152,
+      "1:N (location_id)"
+    );
+  }
+  if (boxMetrics.products && boxMetrics.audit_log) {
+    // products.id -> audit_log.ref_id (logical HMAC chain link)
+    connectorsSvg += drawCrowsFootConnector(
+      boxMetrics.products.x + boxMetrics.products.w,
+      boxMetrics.products.y + 50,
+      boxMetrics.audit_log.x,
+      boxMetrics.audit_log.y + 130,
+      "HMAC ref_id",
+      true
+    );
+  }
+  if (boxMetrics.movements && boxMetrics.audit_log) {
+    // movements.id -> audit_log.ref_id (logical HMAC chain link)
+    connectorsSvg += drawCrowsFootConnector(
+      boxMetrics.movements.x + boxMetrics.movements.w,
+      boxMetrics.movements.y + 50,
+      boxMetrics.audit_log.x,
+      boxMetrics.audit_log.y + 160,
+      "HMAC ref_id",
+      true
+    );
+  }
+
+  // Render entity boxes
+  let entitiesSvg = "";
+  Object.entries(boxMetrics).forEach(([tblName, m]) => {
+    const fkLookup = {};
+    (m.fks || []).forEach((f) => {
+      fkLookup[f.column] = f;
+    });
+
+    let rowsSvg = "";
+    m.cols.forEach((col, idx) => {
+      const cy = m.y + headerHeight + idx * rowHeight + 15;
+      let badgeSvg = "";
+      let nameOffset = m.x + 10;
+
+      if (col.is_pk) {
+        badgeSvg = `
+          <rect x="${m.x + 8}" y="${cy - 10}" width="24" height="14" rx="2" class="svg-badge-pk" />
+          <text x="${m.x + 20}" y="${cy}" text-anchor="middle" class="svg-badge-pk-text">PK</text>
+        `;
+        nameOffset = m.x + 38;
+      } else if (fkLookup[col.name]) {
+        badgeSvg = `
+          <rect x="${m.x + 8}" y="${cy - 10}" width="24" height="14" rx="2" class="svg-badge-fk" />
+          <text x="${m.x + 20}" y="${cy}" text-anchor="middle" class="svg-badge-fk-text">FK</text>
+        `;
+        nameOffset = m.x + 38;
+      }
+
+      rowsSvg += `
+        ${badgeSvg}
+        <text x="${nameOffset}" y="${cy}" class="svg-attr-name">${escapeHtml(col.name)}</text>
+        <text x="${m.x + m.w - 10}" y="${cy}" text-anchor="end" class="svg-attr-type">${escapeHtml(col.type)}${col.notnull ? " *" : ""}</text>
+      `;
+    });
+
+    entitiesSvg += `
+      <g class="svg-entity-group" data-svg-table="${escapeHtml(tblName)}">
+        <rect x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}" rx="4" class="svg-entity-box" />
+        <rect x="${m.x}" y="${m.y}" width="${m.w}" height="${headerHeight}" rx="4" class="svg-entity-header" />
+        <text x="${m.x + 10}" y="${m.y + 19}" class="svg-entity-title">${escapeHtml(tblName.toUpperCase())}</text>
+        <text x="${m.x + m.w - 10}" y="${m.y + 19}" text-anchor="end" class="svg-entity-count">${m.totalRows} rows</text>
+        ${rowsSvg}
+      </g>
+    `;
+  });
+
+  container.innerHTML = `
+    <svg viewBox="0 0 1160 560" class="er-svg-diagram" role="img" aria-label="Generated 3NF Relational Crow's Foot ER Diagram">
+      ${connectorsSvg}
+      ${entitiesSvg}
+    </svg>
+  `;
+}
+
+// Renders ALL 7 physical tables and ALL 3 relational views simultaneously on the dedicated Entire DB page
+let currentFullDbFilter = "ALL";
+
+async function loadFullDbPage(forceRefresh = false) {
+  const dumpBody = document.getElementById("fullDbDumpBody");
+  if (!dumpBody) return;
+  try {
+    if (!cachedFullSchema || forceRefresh) {
+      dumpBody.innerHTML = `<div class="bento-box span-12 text-center text-muted" style="padding: 32px;">Loading complete SQLite database schema &amp; tables...</div>`;
+      cachedFullSchema = await apiCall("/debug/full-schema?limit=50");
+    }
+    renderFullDatabaseDump(cachedFullSchema, currentFullDbFilter);
+  } catch (err) {
+    dumpBody.innerHTML = `<div class="notice notice-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderFullDatabaseDump(schemaData, filterType = "ALL") {
+  const dumpBody = document.getElementById("fullDbDumpBody");
+  if (!dumpBody || !schemaData) return;
+
+  let allObjects = [
+    ...(schemaData.tables || []),
+    ...(schemaData.views || []),
+  ];
+
+  if (filterType === "TABLE") {
+    allObjects = allObjects.filter((o) => o.object_type === "TABLE");
+  } else if (filterType === "VIEW") {
+    allObjects = allObjects.filter((o) => o.object_type === "VIEW");
+  }
+
+  dumpBody.innerHTML = allObjects
+    .map((obj) => {
+      const fkMap = {};
+      (obj.foreign_keys || []).forEach((fk) => {
+        fkMap[fk.column] = fk;
+      });
+
+      const cols = obj.columns || [];
+      const rows = obj.rows || [];
+
+      const colRowsHtml = cols
+        .map((c) => {
+          let constraintBadge = "-";
+          if (c.is_pk) {
+            constraintBadge = `<span class="badge badge-success">PRIMARY KEY</span>`;
+          } else if (fkMap[c.name]) {
+            const fk = fkMap[c.name];
+            constraintBadge = `<span class="badge badge-warning">FK &rarr; ${escapeHtml(fk.references_table)}(${escapeHtml(fk.references_column)}) [${escapeHtml(fk.on_delete)}]</span>`;
+          }
+          return `
+            <tr>
+              <td>${c.cid}</td>
+              <td><strong><code>${escapeHtml(c.name)}</code></strong></td>
+              <td><span class="badge badge-secondary">${escapeHtml(c.type || "ANY")}</span></td>
+              <td>${c.notnull ? "NOT NULL" : "NULLABLE"}</td>
+              <td><code>${c.default_value !== null ? escapeHtml(String(c.default_value)) : "-"}</code></td>
+              <td>${constraintBadge}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      const rawHeadHtml = cols.length > 0
+        ? `<tr>${cols.map((c) => `<th>${escapeHtml(c.name)}</th>`).join("")}</tr>`
+        : "";
+
+      const rawBodyHtml = rows.length === 0
+        ? `<tr><td colspan="${Math.max(1, cols.length)}" class="text-center text-muted">No rows in ${escapeHtml(obj.name)}.</td></tr>`
+        : rows
+            .map((r) => {
+              const cells = cols
+                .map((c) => {
+                  const val = r[c.name];
+                  if (val === null || val === undefined) {
+                    return `<td class="text-muted"><em>NULL</em></td>`;
+                  }
+                  const strVal = String(val);
+                  if (strVal.length > 38) {
+                    return `<td title="${escapeHtml(strVal)}"><code>${escapeHtml(strVal.substring(0, 35))}...</code></td>`;
+                  }
+                  return `<td>${escapeHtml(strVal)}</td>`;
+                })
+                .join("");
+              return `<tr>${cells}</tr>`;
+            })
+            .join("");
+
+      return `
+        <div class="dump-object-card" id="db-card-${escapeHtml(obj.name)}">
+          <div class="dump-object-header">
+            <h4>[${escapeHtml(obj.object_type)}] <code>${escapeHtml(obj.name)}</code></h4>
+            <span class="badge ${obj.object_type === "TABLE" ? "badge-primary" : "badge-secondary"}">${obj.total_rows} Total Rows</span>
+          </div>
+
+          <div class="explorer-split-grid">
+            <div class="sub-bento">
+              <span class="sub-bento-label">Schema Structure &amp; Foreign Keys (PRAGMA table_info)</span>
+              <div class="table-responsive">
+                <table class="data-table compact-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Column</th>
+                      <th>Type</th>
+                      <th>Null</th>
+                      <th>Default</th>
+                      <th>Constraint / Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody>${colRowsHtml}</tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="sub-bento">
+              <span class="sub-bento-label">Compiled SQLite DDL (${escapeHtml(obj.object_type)} ${escapeHtml(obj.name)})</span>
+              <pre class="code-block"><code>${escapeHtml(obj.ddl_sql || "")}</code></pre>
+            </div>
+          </div>
+
+          <div class="sub-bento">
+            <span class="sub-bento-label">Actual Database Rows: <code>SELECT * FROM ${escapeHtml(obj.name)} LIMIT 50;</code></span>
+            <div class="table-responsive" style="max-height: 260px; overflow-y: auto;">
+              <table class="data-table compact-table">
+                <thead>${rawHeadHtml}</thead>
+                <tbody>${rawBodyHtml}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+window.scrollToDbObject = function (objName) {
+  const card = document.getElementById(`db-card-${objName}`);
+  if (card) {
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    // If filtered out, reset filter to ALL first
+    currentFullDbFilter = "ALL";
+    document.querySelectorAll(".btn-fulldb-filter").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-filter") === "ALL");
+    });
+    if (cachedFullSchema) {
+      renderFullDatabaseDump(cachedFullSchema, "ALL");
+      const target = document.getElementById(`db-card-${objName}`);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+};
+
+document.querySelectorAll(".btn-fulldb-filter").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    currentFullDbFilter = btn.getAttribute("data-filter") || "ALL";
+    document.querySelectorAll(".btn-fulldb-filter").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    if (cachedFullSchema) {
+      renderFullDatabaseDump(cachedFullSchema, currentFullDbFilter);
+    }
+  });
+});
+
+const btnRefreshFullDb = document.getElementById("btnRefreshFullDb");
+if (btnRefreshFullDb) {
+  btnRefreshFullDb.addEventListener("click", () => loadFullDbPage(true));
+}
+
+// Toggle between Generated SVG ER Diagram and Attribute Card View
+const btnToggleErMode = document.getElementById("btnToggleErMode");
+if (btnToggleErMode) {
+  btnToggleErMode.addEventListener("click", () => {
+    const svgBox = document.getElementById("erSvgContainer");
+    const cardBox = document.getElementById("erCardMapContainer");
+    if (!svgBox || !cardBox) return;
+    const isSvgHidden = svgBox.classList.contains("hidden");
+    if (isSvgHidden) {
+      svgBox.classList.remove("hidden");
+      cardBox.classList.add("hidden");
+      btnToggleErMode.textContent = "Switch to 3NF Card Map";
+    } else {
+      svgBox.classList.add("hidden");
+      cardBox.classList.remove("hidden");
+      btnToggleErMode.textContent = "Switch to Generated SVG Diagram";
+    }
+  });
+}
+
+// Button inside ER Diagram tab switches directly to the dedicated Entire DB page
+const btnShowAllTables = document.getElementById("btnShowAllTables");
+if (btnShowAllTables) {
+  btnShowAllTables.addEventListener("click", () => {
+    switchTab(tabFullDb);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
 }
 
 // Live Database Table & Schema Explorer
@@ -884,6 +1300,20 @@ window.selectExplorerTable = async function (tableName) {
       btn.classList.add("active");
     } else {
       btn.classList.remove("active");
+    }
+  });
+  document.querySelectorAll(".er-entity").forEach((box) => {
+    if (box.getAttribute("data-er-table") === tableName) {
+      box.classList.add("active-er");
+    } else {
+      box.classList.remove("active-er");
+    }
+  });
+  document.querySelectorAll(".svg-entity-group").forEach((grp) => {
+    if (grp.getAttribute("data-svg-table") === tableName) {
+      grp.classList.add("active-svg-entity");
+    } else {
+      grp.classList.remove("active-svg-entity");
     }
   });
   await loadTableExplorer(tableName);
@@ -998,7 +1428,7 @@ document.querySelectorAll(".btn-probe").forEach((btn) => {
       probeSql.textContent = res.sql;
 
       if (res.plan_rows) {
-        probeEngineOutput.innerHTML = `<pre>${JSON.stringify(res.plan_rows, null, 2)}</pre>`;
+        probeEngineOutput.innerHTML = `<pre>${escapeHtml(JSON.stringify(res.plan_rows, null, 2))}</pre>`;
       } else {
         probeEngineOutput.innerHTML = `<strong>Result:</strong> <code>${escapeHtml(res.result || "")}</code>`;
       }
@@ -1032,6 +1462,15 @@ formAddProduct.addEventListener("submit", async (e) => {
   const price = Number(newProdPrice.value);
   const threshold = Number(newProdThreshold.value);
 
+  if (!Number.isInteger(threshold) || threshold < 0 || threshold > 100000) {
+    showNotice("Reorder threshold must be an integer between 0 and 100,000.", "error");
+    return;
+  }
+  if (isNaN(price) || price < 0.01 || price > 10000000) {
+    showNotice("Unit price must be between 0.01 and 10,000,000.", "error");
+    return;
+  }
+
   try {
     const res = await apiCall("/products", {
       method: "POST",
@@ -1064,6 +1503,9 @@ btnNavInventory.addEventListener("click", () => switchTab(tabInventory));
 btnNavOperations.addEventListener("click", () => switchTab(tabOperations));
 btnNavAudit.addEventListener("click", () => switchTab(tabAudit));
 btnNavDiagnostics.addEventListener("click", () => switchTab(tabDiagnostics));
+if (btnNavFullDb) {
+  btnNavFullDb.addEventListener("click", () => switchTab(tabFullDb));
+}
 btnBrand.addEventListener("click", () => switchTab(tabInventory));
 
 productSearchInput.addEventListener("input", renderInventory);
@@ -1080,11 +1522,55 @@ loginForm.addEventListener("submit", (e) => {
 });
 
 btnQuickAdmin.addEventListener("click", () => {
+  loginUsername.value = "admin";
+  loginPassword.value = "vault-admin-2026";
   handleLogin("admin", "vault-admin-2026");
 });
 
 btnQuickStaff.addEventListener("click", () => {
+  loginUsername.value = "staff";
+  loginPassword.value = "vault-staff-2026";
   handleLogin("staff", "vault-staff-2026");
+});
+
+// Delegated click listener for CSP-compliant data-action attributes
+document.addEventListener("click", (e) => {
+  const scrollBtn = e.target.closest("[data-scroll-target]");
+  if (scrollBtn) {
+    const target = scrollBtn.getAttribute("data-scroll-target");
+    if (window.scrollToDbObject) window.scrollToDbObject(target);
+    return;
+  }
+  const erEntity = e.target.closest("[data-er-table]");
+  if (erEntity) {
+    const tbl = erEntity.getAttribute("data-er-table");
+    if (window.selectExplorerTable) window.selectExplorerTable(tbl);
+    return;
+  }
+  const rowCountCard = e.target.closest("[data-explorer-table]");
+  if (rowCountCard) {
+    const tbl = rowCountCard.getAttribute("data-explorer-table");
+    if (window.selectExplorerTable) window.selectExplorerTable(tbl);
+    return;
+  }
+  const recvBtn = e.target.closest(".btn-quick-recv");
+  if (recvBtn) {
+    const pId = Number(recvBtn.getAttribute("data-product-id"));
+    if (window.quickPrepareReceive) window.quickPrepareReceive(pId);
+    return;
+  }
+  const dispBtn = e.target.closest(".btn-quick-disp");
+  if (dispBtn) {
+    const pId = Number(dispBtn.getAttribute("data-product-id"));
+    if (window.quickPrepareDispatch) window.quickPrepareDispatch(pId);
+    return;
+  }
+  const svgGroup = e.target.closest("[data-svg-table]");
+  if (svgGroup) {
+    const tbl = svgGroup.getAttribute("data-svg-table");
+    if (window.selectExplorerTable) window.selectExplorerTable(tbl);
+    return;
+  }
 });
 
 btnLogout.addEventListener("click", () => {
@@ -1120,7 +1606,8 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/'/g, "&#039;")
+    .replace(/`/g, "&#96;");
 }
 
 function formatDate(isoStr) {

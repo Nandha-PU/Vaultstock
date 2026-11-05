@@ -58,6 +58,13 @@ BEGIN
     SELECT RAISE(ABORT, 'SECURITY VIOLATION: Products cannot be deleted; historical ledger requires referential integrity.');
 END;
 
+-- Referential safeguard: products cannot be updated; catalog records are immutable
+CREATE TRIGGER IF NOT EXISTS prevent_product_update
+BEFORE UPDATE ON products
+BEGIN
+    SELECT RAISE(ABORT, 'SECURITY VIOLATION: Products cannot be updated; catalog records are immutable.');
+END;
+
 -- 6. MOVEMENTS: The append-only stock ledger
 CREATE TABLE IF NOT EXISTS movements (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,8 +112,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY,
     action TEXT NOT NULL,
     actor TEXT NOT NULL,
-    ref_table TEXT,
-    ref_id INTEGER,
+    ref_table TEXT NOT NULL CHECK(ref_table IN ('products', 'movements')),
+    ref_id INTEGER NOT NULL,
     payload TEXT NOT NULL,
     details TEXT NOT NULL,
     timestamp TEXT NOT NULL,

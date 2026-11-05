@@ -3,6 +3,7 @@ import hmac
 import json
 import secrets
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,8 +55,8 @@ def compute_hash(
     row_id: int,
     action: str,
     actor: str,
-    ref_table: str | None,
-    ref_id: int | None,
+    ref_table: str,
+    ref_id: int,
     payload_json: str,
     timestamp: str,
 ) -> str:
@@ -68,16 +69,23 @@ def compute_hash(
     return hmac.new(AUDIT_HMAC_KEY, message.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+_ANCHOR_LOCK = threading.Lock()
+
+
 def update_anchor(head_id: int, head_hash: str, timestamp: str) -> None:
     """Writes the latest audit block head to an external checkpoint file."""
     anchor_file = Path(ANCHOR_PATH)
     anchor_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp_file = anchor_file.with_suffix(".tmp")
-    tmp_file.write_text(
-        json.dumps({"id": head_id, "row_hash": head_hash, "timestamp": timestamp}, indent=2),
-        encoding="utf-8",
-    )
-    tmp_file.replace(anchor_file)
+    with _ANCHOR_LOCK:
+        tmp_file = anchor_file.with_name(f"{anchor_file.name}.{secrets.token_hex(4)}.tmp")
+        try:
+            tmp_file.write_text(
+                json.dumps({"id": head_id, "row_hash": head_hash, "timestamp": timestamp}, indent=2),
+                encoding="utf-8",
+            )
+            tmp_file.replace(anchor_file)
+        finally:
+            tmp_file.unlink(missing_ok=True)
 
 
 def get_anchor() -> dict | None:
@@ -112,9 +120,9 @@ def append_audit_entry(
     conn: sqlite3.Connection,
     action: str,
     actor: str,
-    ref_table: str | None,
-    ref_id: int | None,
-    payload: dict | None,
+    ref_table: str,
+    ref_id: int,
+    payload: dict,
     details: str,
 ) -> str:
     """Appends a chained HMAC-SHA256 block to audit_log. Anchor file is synced post-commit."""
@@ -298,22 +306,14 @@ def verify_audit_chain() -> dict:
         conn.close()
 
 
-def tamper_for_demo(block_id: int = 1, file_level: bool = True) -> dict:
+def tamper_for_demo(block_id: int = 1) -> dict:
     """
-    Simulates database tampering for presentation demonstrations:
-      - file_level=False: runs a normal SQL UPDATE (blocked immediately by SQLite trigger).
-      - file_level=True: bypasses the trigger and rewrites block #1 with an unkeyed SHA-256
-        hash (simulating a direct disk edit without the secret HMAC key).
+    Simulates disk-level database tampering for presentation demonstrations:
+    bypasses the SQLite trigger and rewrites block #1 with an unkeyed SHA-256
+    hash (simulating a direct disk edit without the secret HMAC key).
     """
     conn = get_connection()
     try:
-        if not file_level:
-            conn.execute(
-                "UPDATE audit_log SET details = details || ' [TAMPERED]' WHERE id = ?;",
-                (block_id,),
-            )
-            return {"status": "tampered", "type": "app_level"}
-
         cur = conn.cursor()
         cur.execute("DROP TRIGGER IF EXISTS prevent_audit_update;")
         cur.execute("SELECT * FROM audit_log WHERE id = ?;", (block_id,))
@@ -502,8 +502,8 @@ def init_db() -> None:
         conn.close()
 
 
-def reset_demo_db(admin_actor: str = "admin") -> None:
-    """Drops all tables and triggers, re-seeds initial data, and logs DEMO_RESET."""
+def reset_demo_db() -> None:
+    """Drops all tables, views, and triggers, compacts storage, and cleanly reseeds initial data."""
     conn = get_connection()
     try:
         conn.executescript(
@@ -515,6 +515,7 @@ def reset_demo_db(admin_actor: str = "admin") -> None:
             DROP TRIGGER IF EXISTS prevent_movement_update;
             DROP TRIGGER IF EXISTS prevent_movement_delete;
             DROP TRIGGER IF EXISTS prevent_product_delete;
+            DROP TRIGGER IF EXISTS prevent_product_update;
             DROP TRIGGER IF EXISTS prevent_audit_update;
             DROP TRIGGER IF EXISTS prevent_audit_delete;
             DROP TABLE IF EXISTS audit_log;
@@ -524,6 +525,8 @@ def reset_demo_db(admin_actor: str = "admin") -> None:
             DROP TABLE IF EXISTS suppliers;
             DROP TABLE IF EXISTS categories;
             DROP TABLE IF EXISTS users;
+            DELETE FROM sqlite_sequence;
+            VACUUM;
             """
         )
     finally:
@@ -532,25 +535,9 @@ def reset_demo_db(admin_actor: str = "admin") -> None:
     Path(ANCHOR_PATH).unlink(missing_ok=True)
     init_db()
 
-    conn = get_connection()
-    try:
-        with write_tx(conn):
-            append_audit_entry(
-                conn,
-                "DEMO_RESET",
-                admin_actor,
-                None,
-                None,
-                {"action": "DEMO_RESET", "reset_by": admin_actor},
-                f"Database reset to clean relational baseline by {admin_actor}",
-            )
-        sync_anchor_to_latest(conn)
-    finally:
-        conn.close()
-
 
 def get_db_debug_info() -> dict:
-    """Returns live SQLite engine telemetry, active PRAGMAs, triggers, indices, and views."""
+    """Returns live SQLite engine telemetry, active PRAGMAs, row counts, triggers, and views."""
     conn = get_connection()
     try:
         cur = conn.cursor()
@@ -558,7 +545,6 @@ def get_db_debug_info() -> dict:
         journal_mode = cur.execute("PRAGMA journal_mode;").fetchone()[0]
         foreign_keys = cur.execute("PRAGMA foreign_keys;").fetchone()[0]
         busy_timeout = cur.execute("PRAGMA busy_timeout;").fetchone()[0]
-        synchronous = cur.execute("PRAGMA synchronous;").fetchone()[0]
         page_size = cur.execute("PRAGMA page_size;").fetchone()[0]
         page_count = cur.execute("PRAGMA page_count;").fetchone()[0]
 
@@ -575,22 +561,9 @@ def get_db_debug_info() -> dict:
         triggers = [dict(r) for r in cur.fetchall()]
 
         cur.execute(
-            "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
-        )
-        tables = [dict(r) for r in cur.fetchall()]
-
-        cur.execute(
             "SELECT name, sql FROM sqlite_master WHERE type = 'view' ORDER BY name;"
         )
         views = [dict(r) for r in cur.fetchall()]
-
-        cur.execute(
-            "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name;"
-        )
-        indices = [dict(r) for r in cur.fetchall()]
-
-        cur.execute("SELECT id, action, row_hash, prev_hash, timestamp FROM audit_log ORDER BY id DESC LIMIT 1;")
-        db_head = cur.fetchone()
 
         return {
             "sqlite_version": sqlite3.sqlite_version,
@@ -598,17 +571,12 @@ def get_db_debug_info() -> dict:
                 "journal_mode": str(journal_mode).upper(),
                 "foreign_keys": bool(foreign_keys),
                 "busy_timeout_ms": int(busy_timeout),
-                "synchronous": int(synchronous),
                 "page_size_bytes": int(page_size),
                 "db_size_bytes": int(page_size) * int(page_count),
             },
             "row_counts": counts,
             "triggers": triggers,
-            "tables": tables,
             "views": views,
-            "indices": indices,
-            "db_head": dict(db_head) if db_head else None,
-            "external_anchor": get_anchor(),
         }
     finally:
         conn.close()
@@ -677,6 +645,9 @@ def inspect_table_or_view(name: str, limit: int = 50) -> dict:
         total_rows = cur.execute(f"SELECT COUNT(*) FROM {name};").fetchone()[0]
         cur.execute(f"SELECT * FROM {name} LIMIT ?;", (safe_limit,))
         raw_rows = [dict(r) for r in cur.fetchall()]
+        for r in raw_rows:
+            if "password_hash" in r and r["password_hash"]:
+                r["password_hash"] = "pbkdf2_sha256$150000$***REDACTED***"
 
         return {
             "name": name,
@@ -690,6 +661,31 @@ def inspect_table_or_view(name: str, limit: int = 50) -> dict:
     finally:
         conn.close()
 
+
+def get_full_database_dump(limit: int = 50) -> dict:
+    """
+    Returns the entire database schema, all tables, all views, foreign key metadata,
+    and raw rows in a single payload for the Full DB & Visual ER Diagram view.
+    """
+    table_names = [
+        "categories",
+        "suppliers",
+        "locations",
+        "products",
+        "movements",
+        "audit_log",
+        "users",
+    ]
+    view_names = [
+        "v_inventory_summary",
+        "v_low_stock_alerts",
+        "v_ledger_history",
+    ]
+
+    return {
+        "tables": [inspect_table_or_view(t, limit=limit) for t in table_names],
+        "views": [inspect_table_or_view(v, limit=limit) for v in view_names],
+    }
 
 
 def run_sql_probe(probe_type: str) -> dict:
@@ -771,6 +767,17 @@ def run_sql_probe(probe_type: str) -> dict:
                 "2. Engine intercepts with 'prevent_product_delete' BEFORE DELETE trigger.",
                 "3. Aborts with RAISE(ABORT, 'SECURITY VIOLATION: Products cannot be deleted; historical ledger requires referential integrity.').",
                 "4. Eliminates orphaned rows in movements and preserves audit trail."
+            ],
+        },
+        "trigger_product_update": {
+            "title": "Referential Guard — Block UPDATE on Products",
+            "sql": "UPDATE products SET unit_price = 0.01 WHERE id = 1;",
+            "mode": "trigger",
+            "process_steps": [
+                "1. User or rogue script attempts to UPDATE product #1 catalog record.",
+                "2. Engine intercepts with 'prevent_product_update' BEFORE UPDATE trigger.",
+                "3. Aborts with RAISE(ABORT, 'SECURITY VIOLATION: Products cannot be updated; catalog records are immutable.').",
+                "4. Protects historic valuation, prevents catalog tampering, and enforces non-repudiation."
             ],
         },
     }

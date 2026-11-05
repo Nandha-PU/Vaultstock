@@ -36,7 +36,7 @@ class StaticRequestHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "connect-src http://localhost:8000 http://127.0.0.1:8000; "
             "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         )

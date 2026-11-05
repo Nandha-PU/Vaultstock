@@ -5,17 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VaultStock — Relational Inventory &amp; Audit Ledger</title>
   <link rel="stylesheet" href="style.css">
-  <script>
-    (function() {
-      try {
-        var t = localStorage.getItem('vaultstock_theme') || 'light';
-        document.documentElement.setAttribute('data-theme', t);
-        if (t === 'dark') {
-          document.documentElement.classList.add('dark');
-        }
-      } catch (e) {}
-    })();
-  </script>
+  <script src="theme.js"></script>
 </head>
 <body>
 
@@ -52,7 +42,7 @@
           <label for="loginPassword">Password</label>
           <input type="password" id="loginPassword" placeholder="Enter password" required autocomplete="current-password">
         </div>
-        <button type="submit" id="btnLoginSubmit" class="btn btn-primary btn-full">Sign In</button>
+        <button type="submit" class="btn btn-primary btn-full">Sign In</button>
       </form>
     </div>
   </div>
@@ -69,12 +59,13 @@
           <button type="button" id="btnNavInventory" class="nav-tab active">Inventory</button>
           <button type="button" id="btnNavOperations" class="nav-tab">Operations</button>
           <button type="button" id="btnNavAudit" class="nav-tab">Audit Chain</button>
-          <button type="button" id="btnNavDiagnostics" class="nav-tab admin-only">DB Explorer</button>
+          <button type="button" id="btnNavDiagnostics" class="nav-tab">ER Diagram &amp; Schema</button>
+          <button type="button" id="btnNavFullDb" class="nav-tab">Entire DB</button>
         </nav>
       </div>
 
       <div class="topbar-actions">
-        <div class="chain-status-indicator" id="topbarChainStatus" title="Cryptographic Audit Status">
+        <div class="chain-status-indicator" title="Cryptographic Audit Status">
           <span class="status-dot verified" id="chainStatusDot"></span>
           <span id="chainStatusText">Chain Verified</span>
         </div>
@@ -115,7 +106,7 @@
           <strong class="tile-value" id="kpiTotalValuation">$0.00</strong>
           <span class="tile-sub">SUM(stock &times; unit price)</span>
         </div>
-        <div class="bento-box span-3 metric-tile" id="kpiAlertCard">
+        <div class="bento-box span-3 metric-tile">
           <span class="tile-eyebrow">04 / Thresholds</span>
           <strong class="tile-value" id="kpiLowStockCount">0</strong>
           <span class="tile-sub" id="kpiLowStockSub">All stock levels optimal</span>
@@ -239,7 +230,7 @@
             <div class="field">
               <div class="label-row">
                 <label for="dispatchProductSelect">Product</label>
-                <span class="field-hint" id="dispatchAvailableHint">Available: <strong id="dispatchBalanceSpan">-</strong> units</span>
+                <span class="field-hint">Available: <strong id="dispatchBalanceSpan">-</strong> units</span>
               </div>
               <select id="dispatchProductSelect" required class="input-control">
                 <option value="">Select product...</option>
@@ -309,7 +300,7 @@
     <section id="tabAudit" class="tab-pane hidden">
       <div class="bento-grid">
         <!-- Left 5-Col Bento Tile: Integrity Status & Actions -->
-        <div class="bento-box span-5 audit-status-tile" id="auditHeroCard">
+        <div class="bento-box span-5 audit-status-tile">
           <div>
             <span class="status-indicator-badge verified" id="auditHeroBadge">100% VERIFIED</span>
             <h2 id="auditHeroTitle" class="audit-title">Cryptographic Chain Intact</h2>
@@ -427,6 +418,151 @@
           <span class="tile-sub">BEGIN IMMEDIATE serialization</span>
         </div>
 
+        <!-- Full-Width Generated Visual ER Diagram (SVG Crow's Foot + 3NF Map) -->
+        <div class="bento-box span-12">
+          <div class="bento-header border-bottom">
+            <div>
+              <h3>Generated Visual Entity-Relationship (ER) Diagram</h3>
+              <span class="bento-caption">Dynamically generated from SQLite <code>PRAGMA table_info</code> &amp; <code>PRAGMA foreign_key_list</code> with Crow's Foot cardinalities</span>
+            </div>
+            <div class="bento-toolbar">
+              <button type="button" id="btnToggleErMode" class="btn btn-xs">Switch to 3NF Card Map</button>
+              <button type="button" id="btnShowAllTables" class="btn btn-primary btn-xs">Open Entire DB Page &rarr;</button>
+            </div>
+          </div>
+
+          <!-- Generated Vector SVG Crow's Foot ER Diagram -->
+          <div id="erSvgContainer" class="er-svg-container">
+            <div class="text-center text-muted" style="padding: 40px;">Generating visual ER diagram from database schema...</div>
+          </div>
+
+          <!-- Alternative 3-Column Card Map (Toggled via button) -->
+          <div id="erCardMapContainer" class="er-diagram-canvas hidden">
+            <!-- Column 1: Master Reference Entities (1-Side) -->
+            <div class="er-col">
+              <div class="er-col-label">01 / Master Reference Entities (1-Side)</div>
+
+              <div class="er-entity" data-er-table="categories">
+                <div class="er-entity-head">
+                  <strong>CATEGORIES</strong>
+                  <span class="er-rel-tag">1 : N &rarr; PRODUCTS</span>
+                </div>
+                <ul class="er-attr-list">
+                  <li><code>id</code> <span class="badge badge-success">PK</span> <small>INTEGER</small></li>
+                  <li><code>code</code> <span class="badge badge-secondary">UK</span> <small>TEXT</small></li>
+                  <li><code>name</code> <small>TEXT NOT NULL</small></li>
+                  <li><code>description</code> <small>TEXT</small></li>
+                </ul>
+              </div>
+
+              <div class="er-entity" data-er-table="suppliers">
+                <div class="er-entity-head">
+                  <strong>SUPPLIERS</strong>
+                  <span class="er-rel-tag">1 : N &rarr; MOVEMENTS</span>
+                </div>
+                <ul class="er-attr-list">
+                  <li><code>id</code> <span class="badge badge-success">PK</span> <small>INTEGER</small></li>
+                  <li><code>name</code> <span class="badge badge-secondary">UK</span> <small>TEXT</small></li>
+                  <li><code>contact_email</code> <small>TEXT</small></li>
+                  <li><code>phone</code> <small>TEXT</small></li>
+                </ul>
+              </div>
+
+              <div class="er-entity" data-er-table="locations">
+                <div class="er-entity-head">
+                  <strong>LOCATIONS</strong>
+                  <span class="er-rel-tag">1 : N &rarr; MOVEMENTS</span>
+                </div>
+                <ul class="er-attr-list">
+                  <li><code>id</code> <span class="badge badge-success">PK</span> <small>INTEGER</small></li>
+                  <li><code>code</code> <span class="badge badge-secondary">UK</span> <small>TEXT</small></li>
+                  <li><code>name</code> <small>TEXT NOT NULL</small></li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Column 2: Core Operational Entities (N-Side) -->
+            <div class="er-col">
+              <div class="er-col-label">02 / Core Operational Entities (N-Side)</div>
+
+              <div class="er-entity active-er" data-er-table="products">
+                <div class="er-entity-head">
+                  <strong>PRODUCTS</strong>
+                  <span class="er-rel-tag">1 : N &rarr; MOVEMENTS</span>
+                </div>
+                <ul class="er-attr-list">
+                  <li><code>id</code> <span class="badge badge-success">PK</span> <small>INTEGER</small></li>
+                  <li><code>sku</code> <span class="badge badge-secondary">UK</span> <small>TEXT (3..32)</small></li>
+                  <li><code>name</code> <small>TEXT NOT NULL</small></li>
+                  <li><code>category_id</code> <span class="badge badge-warning">FK</span> <small>&rarr; categories.id</small></li>
+                  <li><code>unit_price</code> <small>REAL (&gt; 0)</small></li>
+                  <li><code>reorder_threshold</code> <small>INTEGER</small></li>
+                </ul>
+              </div>
+
+              <div class="er-entity" data-er-table="movements">
+                <div class="er-entity-head">
+                  <strong>MOVEMENTS (Append-Only Ledger)</strong>
+                  <span class="er-rel-tag">1 : 1 &rarr; AUDIT_LOG</span>
+                </div>
+                <ul class="er-attr-list">
+                  <li><code>id</code> <span class="badge badge-success">PK</span> <small>INTEGER</small></li>
+                  <li><code>product_id</code> <span class="badge badge-warning">FK</span> <small>&rarr; products.id</small></li>
+                  <li><code>supplier_id</code> <span class="badge badge-warning">FK</span> <small>&rarr; suppliers.id</small></li>
+                  <li><code>location_id</code> <span class="badge badge-warning">FK</span> <small>&rarr; locations.id</small></li>
+                  <li><code>type</code> <small>CHECK('IN','OUT')</small></li>
+                  <li><code>qty</code> <small>INTEGER (&gt;= 1)</small></li>
+                  <li><code>reference_doc</code> <small>TEXT (PO/SO)</small></li>
+                  <li><code>created_by</code> <small>TEXT</small></li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Column 3: Audit & Access Control Entities -->
+            <div class="er-col">
+              <div class="er-col-label">03 / Cryptographic Audit &amp; RBAC</div>
+
+              <div class="er-entity" data-er-table="audit_log">
+                <div class="er-entity-head">
+                  <strong>AUDIT_LOG (Chained Blocks)</strong>
+                  <span class="er-rel-tag">Self-Linked (prev_hash)</span>
+                </div>
+                <ul class="er-attr-list">
+                  <li><code>id</code> <span class="badge badge-success">PK</span> <small>INTEGER (1..N)</small></li>
+                  <li><code>action</code> <small>TEXT</small></li>
+                  <li><code>actor</code> <small>TEXT</small></li>
+                  <li><code>ref_table, ref_id</code> <span class="badge badge-secondary">UK</span> <small>1:1 Bind</small></li>
+                  <li><code>payload</code> <small>Canonical JSON</small></li>
+                  <li><code>prev_hash</code> <small>Parent HMAC</small></li>
+                  <li><code>row_hash</code> <small>Block HMAC-SHA256</small></li>
+                </ul>
+              </div>
+
+              <div class="er-entity" data-er-table="users">
+                <div class="er-entity-head">
+                  <strong>USERS (RBAC Auth)</strong>
+                  <span class="er-rel-tag">1 : N &rarr; Attribution</span>
+                </div>
+                <ul class="er-attr-list">
+                  <li><code>id</code> <span class="badge badge-success">PK</span> <small>INTEGER</small></li>
+                  <li><code>username</code> <span class="badge badge-secondary">UK</span> <small>TEXT</small></li>
+                  <li><code>password_hash</code> <small>PBKDF2-SHA256</small></li>
+                  <li><code>role</code> <small>CHECK('admin','staff')</small></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Relational Cardinality & Normalization Summary Strip -->
+          <div class="er-cardinality-strip">
+            <div class="er-rule-pill"><code>CATEGORIES ||--o{ PRODUCTS</code> (1:N, ON DELETE RESTRICT)</div>
+            <div class="er-rule-pill"><code>PRODUCTS ||--o{ MOVEMENTS</code> (1:N, Derived Balance SUM(IN)-SUM(OUT))</div>
+            <div class="er-rule-pill"><code>SUPPLIERS ||--o{ MOVEMENTS</code> (1:N, Inward Receipts)</div>
+            <div class="er-rule-pill"><code>LOCATIONS ||--o{ MOVEMENTS</code> (1:N, Warehouse Storage)</div>
+            <div class="er-rule-pill"><code>MOVEMENTS ||--o| AUDIT_LOG</code> (1:1, UNIQUE(ref_table, ref_id))</div>
+          </div>
+        </div>
+
         <!-- Full-Width Live Database Table & Schema Explorer -->
         <div class="bento-box span-12">
           <div class="bento-header border-bottom">
@@ -437,7 +573,7 @@
             <span class="badge badge-secondary" id="explorerRowCountBadge">0 Rows</span>
           </div>
 
-          <div class="selector-strip" id="dbTableSelector">
+          <div class="selector-strip">
             <button type="button" class="btn btn-xs btn-db-table active" data-table="products">products</button>
             <button type="button" class="btn btn-xs btn-db-table" data-table="categories">categories</button>
             <button type="button" class="btn btn-xs btn-db-table" data-table="suppliers">suppliers</button>
@@ -509,6 +645,7 @@
             <button type="button" class="btn btn-xs btn-probe" data-probe="trigger_movement_delete">Block DELETE Movement</button>
             <button type="button" class="btn btn-xs btn-probe" data-probe="trigger_audit_update">Block UPDATE Audit</button>
             <button type="button" class="btn btn-xs btn-probe" data-probe="trigger_product_delete">Block DELETE Product</button>
+            <button type="button" class="btn btn-xs btn-probe" data-probe="trigger_product_update">Block UPDATE Product</button>
           </div>
 
           <div id="probeResultBox" class="probe-result-box hidden">
@@ -542,6 +679,45 @@
           <div class="row-counts-grid" id="diagRowCountsGrid"></div>
           <div id="diagTriggersViewsList" class="diagnostics-definitions-list"></div>
         </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 5: ENTIRE DATABASE PAGE (ALL TABLES, VIEWS, SCHEMAS & RAW ROWS)   -->
+    <!-- ===================================================================== -->
+    <section id="tabFullDb" class="tab-pane hidden">
+      <div class="bento-grid">
+        <div class="bento-box span-12">
+          <div class="bento-header border-bottom">
+            <div>
+              <h3>Entire Relational Database (All 7 Physical Tables &amp; 3 Compiled Views)</h3>
+              <span class="bento-caption">Complete live inspection of every SQLite table and view: column definitions, PK/FK constraints, compiled DDL, and actual stored rows</span>
+            </div>
+            <div class="bento-toolbar">
+              <button type="button" class="btn btn-xs btn-fulldb-filter active" data-filter="ALL">All Objects (10)</button>
+              <button type="button" class="btn btn-xs btn-fulldb-filter" data-filter="TABLE">Physical Tables (7)</button>
+              <button type="button" class="btn btn-xs btn-fulldb-filter" data-filter="VIEW">Relational Views (3)</button>
+              <button type="button" id="btnRefreshFullDb" class="btn btn-primary btn-xs">Refresh DB</button>
+            </div>
+          </div>
+
+          <div class="selector-strip" style="margin-bottom: 0;">
+            <span class="tile-eyebrow" style="align-self: center; margin-right: 6px;">Jump to:</span>
+            <button type="button" class="btn btn-xs" data-scroll-target="categories">categories</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="suppliers">suppliers</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="locations">locations</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="products">products</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="movements">movements</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="audit_log">audit_log</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="users">users</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="v_inventory_summary">v_inventory_summary</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="v_low_stock_alerts">v_low_stock_alerts</button>
+            <button type="button" class="btn btn-xs" data-scroll-target="v_ledger_history">v_ledger_history</button>
+          </div>
+        </div>
+
+        <!-- Dynamic Container for All Table & View Bento Cards -->
+        <div id="fullDbDumpBody" class="span-12 full-dump-grid"></div>
       </div>
     </section>
 
@@ -580,7 +756,7 @@
           </div>
           <div class="field flex-1">
             <label for="newProdThreshold">Reorder Threshold</label>
-            <input type="number" id="newProdThreshold" class="input-control" min="0" max="10000" placeholder="10" value="10" required>
+            <input type="number" id="newProdThreshold" class="input-control" min="0" max="100000" placeholder="10" value="10" required>
           </div>
         </div>
         <div class="modal-actions">

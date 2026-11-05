@@ -20,10 +20,9 @@ from api.config import (
 )
 from api.db import (
     append_audit_entry,
-    canonical_json,
-    get_anchor,
     get_connection,
     get_db_debug_info,
+    get_full_database_dump,
     init_db,
     inspect_table_or_view,
     reset_demo_db,
@@ -174,6 +173,7 @@ class SqlProbeRequest(_Strict):
         "trigger_movement_delete",
         "trigger_audit_update",
         "trigger_product_delete",
+        "trigger_product_update",
         "trigger_negative_stock",
     ]
 
@@ -447,12 +447,30 @@ def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
             if not item:
                 raise HTTPException(status_code=404, detail="Product not found")
 
-            # 2. Application-level check
-            if move.type == "OUT" and item["balance"] < move.qty:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Insufficient inventory! Current balance is {item['balance']}, cannot issue {move.qty} units.",
-                )
+            # 2. Relational & Business Logic validation
+            if move.type == "OUT":
+                if move.supplier_id is not None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid movement: supplier_id cannot be assigned to OUT dispatches.",
+                    )
+                effective_supplier_id = None
+                if item["balance"] < move.qty:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Insufficient inventory! Current balance is {item['balance']}, cannot issue {move.qty} units.",
+                    )
+            else:
+                effective_supplier_id = move.supplier_id
+                if effective_supplier_id is not None:
+                    cur.execute("SELECT id FROM suppliers WHERE id = ?;", (effective_supplier_id,))
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail="Invalid supplier_id: Supplier does not exist.")
+
+            effective_location_id = move.location_id or 1
+            cur.execute("SELECT id FROM locations WHERE id = ?;", (effective_location_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=400, detail="Invalid location_id: Location does not exist.")
 
             # 3. Insert append-only movement
             cur.execute("""
@@ -460,8 +478,8 @@ def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """, (
                 move.product_id,
-                move.supplier_id,
-                move.location_id or 1,
+                effective_supplier_id,
+                effective_location_id,
                 move.type,
                 move.qty,
                 move.reference_doc,
@@ -475,12 +493,12 @@ def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
             payload = {
                 "created_by": user["username"],
                 "id": m_id,
-                "location_id": move.location_id or 1,
+                "location_id": effective_location_id,
                 "note": move.note,
                 "product_id": move.product_id,
                 "qty": move.qty,
                 "reference_doc": move.reference_doc,
-                "supplier_id": move.supplier_id,
+                "supplier_id": effective_supplier_id,
                 "type": move.type,
             }
             ref_info = f" [Ref: {move.reference_doc}]" if move.reference_doc else ""
@@ -575,24 +593,21 @@ def verify_integrity(user: dict = Depends(require_any)):
     """Performs mathematical audit verification scan across HMAC-SHA256 chain and relational state."""
     return verify_audit_chain()
 
-@app.get("/api/audit/head")
-def get_audit_head(user: dict = Depends(require_admin)):
-    """Returns the external anchor checkpoint for offline verification."""
-    anchor = get_anchor()
-    if not anchor:
-        raise HTTPException(status_code=404, detail="Anchor not found")
-    return anchor
-
 # -----------------------------------------------------------------------------
-# 6. ENGINE DIAGNOSTICS & PROBES
+# 6. ENGINE DIAGNOSTICS, FULL SCHEMA DUMP & PROBES
 # -----------------------------------------------------------------------------
 @app.get("/api/debug/internals")
-def debug_internals(user: dict = Depends(require_admin)):
-    """Returns SQLite engine PRAGMAs, row counts, active triggers, views, and anchor state."""
+def debug_internals(user: dict = Depends(require_any)):
+    """Returns SQLite engine PRAGMAs, row counts, active triggers, and views."""
     return get_db_debug_info()
 
+@app.get("/api/debug/full-schema")
+def debug_full_schema(limit: int = 50, user: dict = Depends(require_any)):
+    """Returns all tables, views, column definitions, foreign keys, DDL, and raw rows."""
+    return get_full_database_dump(limit=limit)
+
 @app.post("/api/debug/sql-probe")
-def debug_sql_probe(req: SqlProbeRequest, user: dict = Depends(require_admin)):
+def debug_sql_probe(req: SqlProbeRequest, user: dict = Depends(require_any)):
     """Executes a read-only or safely rolled-back SQLite engine trigger/query-plan probe."""
     return run_sql_probe(req.probe_type)
 
@@ -611,7 +626,7 @@ def debug_inspect_table(object_name: str, limit: int = 50, user: dict = Depends(
 if DEMO_MODE:
     @app.post("/api/audit/tamper-demo")
     def simulate_tamper(user: dict = Depends(require_admin)):
-        result = tamper_for_demo(1, file_level=True)
+        result = tamper_for_demo(1)
         return {
             "message": "Simulated rogue DB file-level tampering on block #1. Run verify now to observe detection.",
             "tamper_info": result,
@@ -619,5 +634,5 @@ if DEMO_MODE:
 
     @app.post("/api/reset-demo")
     def reset_database(user: dict = Depends(require_admin)):
-        reset_demo_db(admin_actor=user["username"])
+        reset_demo_db()
         return {"message": "Database reset to pristine relational state with zero anomalies."}

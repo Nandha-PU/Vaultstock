@@ -33,6 +33,7 @@ python run_dev.py
 - **Unified Web Dashboard**: [http://localhost:3000](http://localhost:3000)
 - **Interactive Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Run Automated Test Suite**: `python extras/test_suite.py`
+- **CLI Inspector**: `python inspect_db.py`
 
 ---
 
@@ -57,9 +58,10 @@ vaultstock/
 ├── db/                      # Database definition
 │   └── schema.sql           # 3NF schema, indexes, views & immutability triggers
 ├── web/                     # Unified Single-Page Application (SPA)
-│   ├── index.html           # Unified 4-tab dashboard interface
+│   ├── index.html           # Unified 5-tab dashboard interface
 │   ├── style.css            # Responsive design system (Light & Dark modes)
-│   └── app.js               # Reactive client logic, tamper demo & diagnostics
+│   ├── app.js               # Reactive client logic, tamper demo & diagnostics
+│   └── theme.js             # Theme initialization script
 ├── extras/                  # Supplementary documentation & tests
 │   ├── VIVA_DEFENSE_GUIDE.md # 3-member presentation scripts & top 10 viva Q&As
 │   ├── ER_DIAGRAM.md        # Entity-Relationship diagram & cardinality rules
@@ -67,6 +69,8 @@ vaultstock/
 │   ├── test_suite.py        # Automated 24-step verification test suite
 │   └── ...
 ├── data/                    # SQLite database & HMAC keys (auto-generated)
+├── inspect_db.py            # CLI database inspector & query tool
+├── PROJECT_REPORT.md        # Comprehensive technical report & documentation
 ├── requirements.txt         # Python dependencies
 └── run_dev.py               # Universal development server launcher
 ```

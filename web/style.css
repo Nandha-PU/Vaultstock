@@ -17,13 +17,11 @@
 
   --text-main: #282826;
   --text-muted: #666560;
-  --text-faint: #8a8882;
 
   /* Muted Slate-Iron Accent */
   --accent: #464e56;
   --accent-hover: #363d44;
   --accent-fg: #f5f4f0;
-  --accent-soft: rgba(70, 78, 86, 0.09);
 
   /* Dull Sage (Success / Verified / Inward) */
   --green-fg: #3b5944;
@@ -42,7 +40,6 @@
 
   --radius-bento: 12px;
   --radius-ctrl: 6px;
-  --radius-pill: 999px;
 
   --gap-bento: 14px;
   --pad-bento: 20px;
@@ -69,13 +66,11 @@ body.dark {
 
   --text-main: #d4d6d8;
   --text-muted: #888c91;
-  --text-faint: #61656a;
 
   /* Muted Steel Accent */
   --accent: #6c7680;
   --accent-hover: #7d8894;
   --accent-fg: #131415;
-  --accent-soft: rgba(108, 118, 128, 0.14);
 
   /* Dull Moss */
   --green-fg: #87a891;
@@ -126,12 +121,8 @@ code, pre, .sku-code, .hash-code {
   color: var(--text-muted);
 }
 
-.text-alert, .text-error {
+.text-error {
   color: var(--red-fg) !important;
-}
-
-.text-success {
-  color: var(--green-fg) !important;
 }
 
 .text-right {
@@ -175,15 +166,15 @@ code, pre, .sku-code, .hash-code {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  min-width: 0;
+  max-width: 100%;
 }
 
-.span-3  { grid-column: span 3; }
-.span-4  { grid-column: span 4; }
-.span-5  { grid-column: span 5; }
-.span-6  { grid-column: span 6; }
-.span-7  { grid-column: span 7; }
-.span-8  { grid-column: span 8; }
-.span-12 { grid-column: span 12; }
+.span-3  { grid-column: span 3; min-width: 0; }
+.span-5  { grid-column: span 5; min-width: 0; }
+.span-6  { grid-column: span 6; min-width: 0; }
+.span-7  { grid-column: span 7; min-width: 0; }
+.span-12 { grid-column: span 12; min-width: 0; }
 
 @media (max-width: 1024px) {
   .span-3 { grid-column: span 6; }
@@ -482,7 +473,7 @@ code, pre, .sku-code, .hash-code {
 }
 
 .btn-db-table.active,
-.btn-probe.active {
+.btn-fulldb-filter.active {
   background-color: var(--accent) !important;
   color: var(--accent-fg) !important;
   border-color: var(--accent) !important;
@@ -541,12 +532,6 @@ select:focus {
   background-color: var(--amber-bg);
   color: var(--amber-fg);
   border-color: var(--amber-border);
-}
-
-.badge-danger {
-  background-color: var(--red-bg);
-  color: var(--red-fg);
-  border-color: var(--red-border);
 }
 
 .badge-secondary {
@@ -799,8 +784,10 @@ select:focus {
 
 .explorer-split-grid {
   display: grid;
-  grid-template-columns: 7fr 5fr;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
   gap: 14px;
+  min-width: 0;
+  width: 100%;
 }
 
 @media (max-width: 960px) {
@@ -816,6 +803,8 @@ select:focus {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .sub-bento-label {
@@ -837,7 +826,10 @@ select:focus {
   font-size: 11.5px;
   line-height: 1.45;
   color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
   overflow-x: auto;
+  overflow-y: auto;
   max-height: 240px;
 }
 
@@ -1156,3 +1148,271 @@ select:focus {
   flex-direction: column;
   gap: 4px;
 }
+
+
+/* ==========================================================================
+   Interactive ER Diagram & Cardinality Map (Bento Architecture)
+   ========================================================================== */
+
+.er-diagram-canvas {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 960px) {
+  .er-diagram-canvas {
+    grid-template-columns: 1fr;
+  }
+}
+
+.er-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  padding: 12px;
+}
+
+.er-col-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.er-entity {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.er-entity:hover {
+  border-color: var(--accent);
+}
+
+.er-entity.active-er {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.er-entity-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.er-entity-head strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.er-rel-tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.er-attr-list {
+  list-style: none;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.er-attr-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.er-attr-list li small {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.er-cardinality-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.er-rule-pill {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  padding: 4px 10px;
+}
+
+/* ==========================================================================
+   Generated Visual SVG Crow's Foot ER Diagram & Full DB Dump
+   ========================================================================== */
+
+.er-svg-container {
+  width: 100%;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  padding: 12px;
+  margin-bottom: 14px;
+  overflow-x: auto;
+}
+
+.er-svg-diagram {
+  width: 100%;
+  min-width: 960px;
+  height: auto;
+  display: block;
+  font-family: var(--font-mono);
+}
+
+.svg-entity-group {
+  cursor: pointer;
+}
+
+.svg-entity-box {
+  fill: var(--bg-surface);
+  stroke: var(--border);
+  stroke-width: 1.25px;
+  transition: stroke 0.15s ease;
+}
+
+.svg-entity-group:hover .svg-entity-box,
+.svg-entity-group.active-svg-entity .svg-entity-box {
+  stroke: var(--accent);
+  stroke-width: 2px;
+}
+
+.svg-entity-header {
+  fill: var(--bg-hover);
+  stroke: var(--border);
+  stroke-width: 1px;
+}
+
+.svg-entity-title {
+  fill: var(--text-main);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.svg-entity-count {
+  fill: var(--text-muted);
+  font-size: 10.5px;
+}
+
+.svg-attr-name {
+  fill: var(--text-main);
+  font-size: 11px;
+}
+
+.svg-attr-type {
+  fill: var(--text-muted);
+  font-size: 10px;
+}
+
+.svg-badge-pk {
+  fill: var(--green-bg);
+  stroke: var(--green-border);
+}
+
+.svg-badge-pk-text {
+  fill: var(--green-fg);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.svg-badge-fk {
+  fill: var(--amber-bg);
+  stroke: var(--amber-border);
+}
+
+.svg-badge-fk-text {
+  fill: var(--amber-fg);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.svg-rel-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6px;
+}
+
+.svg-rel-dashed {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.4px;
+  stroke-dasharray: 5, 4;
+}
+
+.svg-rel-label-bg {
+  fill: var(--bg-surface);
+  stroke: var(--border);
+  stroke-width: 1px;
+}
+
+.svg-rel-label-text {
+  fill: var(--text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.full-dump-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  width: 100%;
+}
+
+.dump-object-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-bento);
+  padding: var(--pad-bento);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.dump-object-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dump-object-header h4 {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  color: var(--text-main);
+}
+

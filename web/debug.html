@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VaultStock — Backend Engine &amp; Diagnostics</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('vaultstock_theme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+        if (t === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- Login Screen (Only shown if signed out) -->
+  <div id="loginOverlay" class="login-overlay hidden">
+    <div class="login-box">
+      <div class="login-top-row">
+        <div class="login-header">
+          <div class="brand-mark">VS</div>
+          <div>
+            <h1>VaultStock</h1>
+            <p>Admin Backend Sign In</p>
+          </div>
+        </div>
+        <button type="button" id="btnLoginThemeToggle" class="btn btn-sm btn-theme-toggle">Dark Mode</button>
+      </div>
+
+      <div id="demoHint" class="notice notice-info hidden">
+        <div>Admin Access:</div>
+        <div class="demo-login-actions">
+          <button type="button" id="btnQuickAdmin" class="btn btn-sm">Sign In as Admin</button>
+        </div>
+      </div>
+
+      <div id="loginError" class="notice notice-error hidden"></div>
+
+      <form id="loginForm">
+        <div class="field">
+          <label for="loginUsername">Admin Username</label>
+          <input type="text" id="loginUsername" placeholder="admin" required autocomplete="username">
+        </div>
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter password" required autocomplete="current-password">
+        </div>
+        <button type="submit" id="btnLoginSubmit" class="btn btn-primary btn-full">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Top Navigation Bar -->
+  <header class="topbar hidden" id="mainNavbar">
+    <div class="topbar-inner">
+      <div class="topbar-left">
+        <button type="button" class="brand-btn" id="btnBrand">
+          <span class="brand-mark brand-mark-sm">VS</span>
+          <strong>VaultStock</strong>
+        </button>
+        <nav class="nav-tabs" aria-label="Main Navigation">
+          <button type="button" id="btnNavInventory" class="nav-tab">Inventory</button>
+          <button type="button" id="btnNavDemo" class="nav-tab">Live Demo</button>
+          <button type="button" id="btnNavDebug" class="nav-tab active">
+            <span class="status-dot verified" id="navDebugDot"></span>
+            Backend Engine
+          </button>
+        </nav>
+      </div>
+
+      <div class="topbar-actions">
+        <button type="button" id="btnOpenHelp" class="btn btn-sm">? Guide</button>
+        <button type="button" id="btnThemeToggle" class="btn btn-sm btn-theme-toggle">Dark Mode</button>
+        <span id="userBadge" class="user-label"></span>
+        <button type="button" id="btnLogout" class="btn btn-sm">Sign Out</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Backend & Live Demo Workspace -->
+  <main class="workspace hidden" id="mainContent">
+
+    <div id="actionNotice" class="notice hidden"></div>
+
+    <!-- 1. System Integrity Status & 5-Point Automatic Check Boxes -->
+    <section class="status-panel verified" id="integrityBanner">
+      <div class="status-panel-row">
+        <div class="status-info">
+          <div class="status-heading">
+            <span class="status-tag" id="chainBadge">Verified</span>
+            <h2 id="chainStatusTitle">Audit Chain Intact</h2>
+          </div>
+          <p id="chainStatusDesc" class="status-detail">
+            Continuous automatic verification checks contiguity, prev_hash linkage, HMAC signatures, row reconciliation, and external anchor on every transaction.
+          </p>
+        </div>
+        <div class="status-controls">
+          <button type="button" id="btnTamper" class="btn btn-danger btn-sm">Simulate Tamper (Block #1)</button>
+          <button type="button" id="btnResetDemo" class="btn btn-sm">Reset Database</button>
+        </div>
+      </div>
+
+      <div id="tamperAlert" class="notice notice-error hidden">
+        <strong>Tamper Alert:</strong> <span id="tamperAlertText"></span>
+      </div>
+
+      <div class="check-matrix" id="verificationMatrix">
+        <div class="check-box pass" id="checkBoxContiguity">
+          <div class="check-box-top">
+            <span>1. Block Sequence</span>
+            <span class="check-pill" id="checkPillContiguity">PASS</span>
+          </div>
+          <p>Blocks strictly sequential (1..N) without gap deletions.</p>
+        </div>
+        <div class="check-box pass" id="checkBoxLinkage">
+          <div class="check-box-top">
+            <span>2. Hash Linkage</span>
+            <span class="check-pill" id="checkPillLinkage">PASS</span>
+          </div>
+          <p>Each block links to previous block's HMAC digest.</p>
+        </div>
+        <div class="check-box pass" id="checkBoxIntegrity">
+          <div class="check-box-top">
+            <span>3. HMAC Seal</span>
+            <span class="check-pill" id="checkPillIntegrity">PASS</span>
+          </div>
+          <p>Signed using external secret key (<code>VAULTSTOCK_AUDIT_KEY</code>).</p>
+        </div>
+        <div class="check-box pass" id="checkBoxReconciliation">
+          <div class="check-box-top">
+            <span>4. Row Match</span>
+            <span class="check-pill" id="checkPillReconciliation">PASS</span>
+          </div>
+          <p>Operational rows reconcile with audit JSON snapshots.</p>
+        </div>
+        <div class="check-box pass" id="checkBoxAnchor">
+          <div class="check-box-top">
+            <span>5. Head Anchor</span>
+            <span class="check-pill" id="checkPillAnchor">PASS</span>
+          </div>
+          <p>Chain head matches out-of-band <code>audit_head.json</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Two-Column Row: SQL Command Process Explorer + SQLite Telemetry -->
+    <div class="split-grid">
+
+      <!-- Left Card: SQL Command Pipeline & Trigger Probe Sandbox -->
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h3>SQL Command Pipeline &amp; Trigger Tests</h3>
+            <p class="panel-note">Click any action below to inspect the exact SQLite query plan and trigger abort process.</p>
+          </div>
+        </div>
+        <div class="debug-box-body">
+          <div class="probe-btn-grid" id="sqlProbeButtons">
+            <button type="button" class="btn btn-sm js-sql-probe" data-probe="explain_stock">
+              EXPLAIN Stock Calculation
+            </button>
+            <button type="button" class="btn btn-sm js-sql-probe" data-probe="trigger_negative_stock">
+              Test Overdraft Trigger
+            </button>
+            <button type="button" class="btn btn-sm js-sql-probe" data-probe="trigger_movement_update">
+              Test UPDATE movements
+            </button>
+            <button type="button" class="btn btn-sm js-sql-probe" data-probe="trigger_movement_delete">
+              Test DELETE movements
+            </button>
+            <button type="button" class="btn btn-sm js-sql-probe" data-probe="trigger_audit_update">
+              Test UPDATE audit_log
+            </button>
+            <button type="button" class="btn btn-sm js-sql-probe" data-probe="trigger_audit_delete">
+              Test DELETE audit_log
+            </button>
+          </div>
+
+          <div class="sql-console-box" id="sqlProbeConsole">
+            <div class="sql-console-header">
+              <span id="sqlProbeTitle">SQLite Storage Engine Output</span>
+              <span class="status-tag" id="sqlProbeBadge">Ready</span>
+            </div>
+            <pre class="sql-code-block mono" id="sqlProbeQuery">-- Click any button above to test an action against SQLite</pre>
+            
+            <div class="sub-box-title">Step-by-Step Execution Process:</div>
+            <div class="sql-process-steps-box" id="sqlProbeSteps">
+              <div class="sql-step-item">Select any SQL probe button above to inspect its execution steps.</div>
+            </div>
+
+            <div class="sub-box-title">Storage Engine Result:</div>
+            <pre class="sql-result-block mono" id="sqlProbeResult">Engine response will appear here.</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Card: SQLite Engine & Derived Balances Telemetry -->
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h3>SQLite Storage Engine Telemetry</h3>
+            <p class="panel-note">Active PRAGMA settings, row counts, and dynamic stock aggregation.</p>
+          </div>
+          <button type="button" id="btnRefreshInternals" class="btn btn-sm">Refresh</button>
+        </div>
+        <div class="debug-box-body">
+          <div class="tech-kv-grid">
+            <div class="tech-kv-box">
+              <span class="tech-k">Journal &amp; Locking</span>
+              <strong class="tech-v mono" id="dbgJournalMode">WAL + BEGIN IMMEDIATE</strong>
+            </div>
+            <div class="tech-kv-box">
+              <span class="tech-k">Foreign Keys &amp; Triggers</span>
+              <strong class="tech-v mono" id="dbgForeignKeys">ON (7 Active Triggers)</strong>
+            </div>
+            <div class="tech-kv-box">
+              <span class="tech-k">Audit Chain Head</span>
+              <strong class="tech-v mono" id="dbgCountAudit">0 Blocks</strong>
+            </div>
+            <div class="tech-kv-box">
+              <span class="tech-k">External Anchor Status</span>
+              <strong class="tech-v mono" id="dbgAnchorId">Synced</strong>
+            </div>
+          </div>
+
+          <div class="sub-box-title">Live Table Row Counts:</div>
+          <div class="tech-kv-grid">
+            <div class="tech-kv-box">
+              <span class="tech-k">Users Table (<code>users</code>)</span>
+              <strong class="tech-v mono" id="dbgCountUsers">0</strong>
+            </div>
+            <div class="tech-kv-box">
+              <span class="tech-k">Products Table (<code>products</code>)</span>
+              <strong class="tech-v mono" id="dbgCountProducts">0</strong>
+            </div>
+            <div class="tech-kv-box">
+              <span class="tech-k">Movements Table (<code>movements</code>)</span>
+              <strong class="tech-v mono" id="dbgCountMovements">0</strong>
+            </div>
+            <div class="tech-kv-box">
+              <span class="tech-k">Database Size</span>
+              <strong class="tech-v mono" id="dbgDbSize">0 KB</strong>
+            </div>
+          </div>
+
+          <div class="sub-box-title">Live Derived Balances (<code>SUM(IN) - SUM(OUT)</code>):</div>
+          <div class="tech-kv-grid" id="dbgDerivedStockGrid"></div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- 3. Live SQLite Transaction Trace Pipeline -->
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Live SQLite Transaction Trace</h3>
+          <p class="panel-note">Real-time log of API calls and underlying database transaction sequences.</p>
+        </div>
+        <button type="button" id="btnClearSqlTrace" class="btn btn-sm">Clear Trace</button>
+      </div>
+      <div class="debug-box-body">
+        <div class="sql-trace-feed" id="sqlTraceFeed"></div>
+      </div>
+    </section>
+
+    <!-- 4. Cryptographic Audit Trail & Block Inspector -->
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Cryptographic Audit Chain (<code>audit_log</code>)</h3>
+          <p class="panel-note">Select any block to inspect its full 64-character HMAC-SHA256 hashes and JSON snapshot.</p>
+        </div>
+      </div>
+
+      <div class="debug-box-body border-bottom" id="blockInspectorPanel">
+        <div class="tech-detail-box">
+          <div class="tech-detail-header">
+            <span id="inspectorBlockTitle">Selected Block Cryptographic Inspector</span>
+            <span class="status-tag mono" id="inspectorBlockAction">Block</span>
+          </div>
+          <div class="inspector-grid">
+            <div>
+              <div class="mono tech-hash-line"><strong>Prev Hash (64-hex):</strong> <span id="inspectorPrevHash" class="break-all">-</span></div>
+              <div class="mono tech-hash-line"><strong>HMAC-SHA256 Seal:</strong> <span id="inspectorRowHash" class="break-all">-</span></div>
+              <div class="mono tech-hash-line"><strong>Transaction Metadata:</strong> <span id="inspectorMeta">-</span></div>
+            </div>
+            <div>
+              <div class="mono tech-hash-line"><strong>Immutable JSON Snapshot:</strong></div>
+              <pre class="sql-code-block mono" id="inspectorPayloadJson">{}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-container table-scroll">
+        <table class="ledger-table compact">
+          <thead>
+            <tr>
+              <th>Block</th>
+              <th>Action</th>
+              <th>Actor</th>
+              <th>Target</th>
+              <th>Timestamp</th>
+              <th>Prev Hash</th>
+              <th>HMAC-SHA256</th>
+              <th class="text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="auditFeed"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Feature & Demo Help Guide Modal -->
+  <div id="helpModal" class="modal-backdrop hidden">
+    <div class="modal-box modal-box-lg">
+      <div class="modal-top">
+        <h3>How VaultStock Works — Architectural Overview</h3>
+        <button type="button" class="btn-icon" id="btnCloseHelp" aria-label="Close">&times;</button>
+      </div>
+
+      <div class="help-grid">
+        <div class="help-card">
+          <h4>1. Calculated Balances (3NF/BCNF)</h4>
+          <p>Traditional databases update a mutable stock column (<code>UPDATE products SET stock = stock - 5</code>), causing race conditions and lost forensic history. VaultStock derives balance dynamically via <code>SUM(IN) - SUM(OUT)</code>.</p>
+          <span class="help-tip">Benefit: Prevents balance desynchronization permanently.</span>
+        </div>
+
+        <div class="help-card">
+          <h4>2. Storage-Layer Immutability</h4>
+          <p>Every inventory entry and product is permanent. SQLite triggers (<code>prevent_movement_update</code> and <code>prevent_movement_delete</code>) halt any <code>UPDATE</code> or <code>DELETE</code> at the database engine layer.</p>
+          <span class="help-tip">Benefit: Defense-in-depth against SQL injection and application bugs.</span>
+        </div>
+
+        <div class="help-card">
+          <h4>3. Concurrency &amp; Overdraft Guard</h4>
+          <p>Before any Stock Out transaction is inserted, SQLite trigger <code>prevent_negative_stock</code> computes live stock and immediately aborts if balance &lt; quantity.</p>
+          <span class="help-tip">Benefit: Overdrafts are mathematically impossible.</span>
+        </div>
+
+        <div class="help-card">
+          <h4>4. Cryptographic HMAC-SHA256 Seals</h4>
+          <p>Every operational transaction appends an audit block chained with <code>prev_hash</code> and signed with an external secret HMAC key stored outside the database file.</p>
+          <span class="help-tip">Benefit: Attackers with raw disk access cannot forge valid signatures.</span>
+        </div>
+
+        <div class="help-card">
+          <h4>5. Out-of-Band Head Anchor</h4>
+          <p>On every transaction, the latest block head is mirrored to an independent checkpoint file (<code>data/audit_head.json</code>) outside SQLite.</p>
+          <span class="help-tip">Benefit: Defeats tail-truncation attacks (deleting the newest records).</span>
+        </div>
+
+        <div class="help-card">
+          <h4>6. Continuous Automatic Verification</h4>
+          <p>Verification runs automatically across all 5 dimensions: sequence contiguity, prev_hash linkage, HMAC integrity, relational reconciliation, and external anchor match.</p>
+          <span class="help-tip">Benefit: Real-time detection without manual auditing overhead.</span>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" id="btnDoneHelp">Got It</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="debug.js"></script>
+</body>
+</html>

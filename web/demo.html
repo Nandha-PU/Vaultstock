@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VaultStock — Live Presentation &amp; Demo</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('vaultstock_theme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+        if (t === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- Login Screen (Only shown if signed out) -->
+  <div id="loginOverlay" class="login-overlay hidden">
+    <div class="login-box">
+      <div class="login-top-row">
+        <div class="login-header">
+          <div class="brand-mark">VS</div>
+          <div>
+            <h1>VaultStock</h1>
+            <p>Admin Presentation Sign In</p>
+          </div>
+        </div>
+        <button type="button" id="btnLoginThemeToggle" class="btn btn-sm btn-theme-toggle">Dark Mode</button>
+      </div>
+
+      <div id="demoHint" class="notice notice-info hidden">
+        <div>Admin Access for Evaluators:</div>
+        <div class="demo-login-actions">
+          <button type="button" id="btnQuickAdmin" class="btn btn-sm">Sign In as Admin</button>
+        </div>
+      </div>
+
+      <div id="loginError" class="notice notice-error hidden"></div>
+
+      <form id="loginForm">
+        <div class="field">
+          <label for="loginUsername">Admin Username</label>
+          <input type="text" id="loginUsername" placeholder="admin" required autocomplete="username">
+        </div>
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter password" required autocomplete="current-password">
+        </div>
+        <button type="submit" id="btnLoginSubmit" class="btn btn-primary btn-full">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Top Navigation Bar -->
+  <header class="topbar hidden" id="mainNavbar">
+    <div class="topbar-inner">
+      <div class="topbar-left">
+        <button type="button" class="brand-btn" id="btnBrand">
+          <span class="brand-mark brand-mark-sm">VS</span>
+          <strong>VaultStock</strong>
+        </button>
+        <nav class="nav-tabs" aria-label="Main Navigation">
+          <button type="button" id="btnNavInventory" class="nav-tab">Inventory</button>
+          <button type="button" id="btnNavDemo" class="nav-tab active">
+            <span class="status-dot verified" id="navDemoDot"></span>
+            Live Demo
+          </button>
+          <button type="button" id="btnNavDebug" class="nav-tab">Backend Engine</button>
+        </nav>
+      </div>
+
+      <div class="topbar-actions">
+        <button type="button" id="btnOpenHelp" class="btn btn-sm">? Guide</button>
+        <button type="button" id="btnThemeToggle" class="btn btn-sm btn-theme-toggle">Dark Mode</button>
+        <span id="userBadge" class="user-label"></span>
+        <button type="button" id="btnLogout" class="btn btn-sm">Sign Out</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Live Demo Presentation Workspace -->
+  <main class="workspace hidden" id="mainContent">
+
+    <div id="actionNotice" class="notice hidden"></div>
+
+    <!-- 1. Live Integrity & System Pulse Header -->
+    <section class="status-panel verified" id="demoIntegrityBanner">
+      <div class="status-panel-row">
+        <div class="status-info">
+          <div class="status-heading">
+            <span class="status-tag" id="demoChainBadge">Verified</span>
+            <h2 id="demoChainTitle">Audit Chain &amp; Storage Engine Intact</h2>
+          </div>
+          <p id="demoChainDesc" class="status-detail">
+            Every inventory movement is cryptographically sealed with HMAC-SHA256 and verified continuously across 5 integrity dimensions.
+          </p>
+        </div>
+        <div class="status-controls">
+          <button type="button" id="btnTopTamper" class="btn btn-danger btn-sm">Simulate Tamper</button>
+          <button type="button" id="btnTopReset" class="btn btn-sm">Reset Database</button>
+        </div>
+      </div>
+
+      <div id="demoTamperAlert" class="notice notice-error hidden">
+        <strong>Tamper Alert:</strong> <span id="demoTamperAlertText"></span>
+      </div>
+
+      <!-- Quick Live Pulse Counters -->
+      <div class="demo-pulse-grid">
+        <div class="demo-pulse-box">
+          <span class="demo-pulse-label">MacBook Pro Stock</span>
+          <strong class="demo-pulse-val mono" id="pulseMacStock">25 units</strong>
+        </div>
+        <div class="demo-pulse-box">
+          <span class="demo-pulse-label">Total Audit Blocks</span>
+          <strong class="demo-pulse-val mono" id="pulseAuditBlocks">0</strong>
+        </div>
+        <div class="demo-pulse-box">
+          <span class="demo-pulse-label">Database Engine</span>
+          <strong class="demo-pulse-val mono">SQLite WAL + Triggers</strong>
+        </div>
+        <div class="demo-pulse-box">
+          <span class="demo-pulse-label">Last Operation</span>
+          <strong class="demo-pulse-val mono" id="pulseLastAction">System Ready</strong>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Presenter Stage & Evaluator Speaking Prompts -->
+    <section class="panel demo-stage-panel">
+      <div class="panel-header">
+        <div>
+          <h3>Interactive Evaluator Presentation</h3>
+          <p class="panel-note">Follow along step-by-step or use Auto-Play. Each card explains the real-world problem and proves the DBMS solution.</p>
+        </div>
+        <div class="panel-toolbar">
+          <button type="button" id="btnAutoPlayDemo" class="btn btn-primary btn-sm">&#9654; Auto-Play Demo</button>
+          <button type="button" id="btnNextDemoStep" class="btn btn-sm">Next Step &rarr;</button>
+          <button type="button" id="btnResetDemoScript" class="btn btn-sm">Reset Script</button>
+        </div>
+      </div>
+
+      <div class="demo-speaker-box" id="demoSpeakerBox">
+        <div class="demo-speaker-meta">
+          <span id="demoStepPhaseTag">WHAT TO SAY TO THE EVALUATOR</span>
+          <span class="status-tag mono" id="demoStepResultTag">Ready</span>
+        </div>
+        <blockquote id="demoSpeakerScript">
+          "VaultStock never edits a stock column. It derives stock dynamically from an immutable, append-only ledger and automatically verifies every record with an HMAC-SHA256 audit chain."
+        </blockquote>
+      </div>
+
+      <!-- 4 Rich Step Cards Written in Simple English -->
+      <div class="demo-cards-vertical" id="demoCardsContainer">
+
+        <!-- Step 1 Card -->
+        <article class="demo-card" data-step="1" id="cardStep1">
+          <div class="demo-card-header">
+            <div class="demo-card-title-group">
+              <span class="demo-card-num">Step 1</span>
+              <div>
+                <h4>The Magic of Never Overwriting Stock (+10 In)</h4>
+                <p class="demo-card-subtitle">Receive 10 units of MacBook Pro 16" and observe derived calculation in action.</p>
+              </div>
+            </div>
+            <div class="demo-card-actions">
+              <span class="demo-card-status" id="badgeStep1">Ready</span>
+              <button type="button" class="btn btn-sm btn-primary js-run-step" data-step="1">Run Step 1</button>
+            </div>
+          </div>
+
+          <div class="demo-card-body">
+            <div class="demo-story-grid">
+              <div class="demo-story-box problem">
+                <span class="story-label">&#9888; The Problem in Typical Databases</span>
+                <p>Most software updates a mutable cell: <code>UPDATE products SET stock = stock + 10</code>. When numbers are overwritten, audit trails disappear, concurrent edits cause lost updates, and reconciling inventory discrepancies becomes impossible.</p>
+              </div>
+              <div class="demo-story-box solution">
+                <span class="story-label">&#10004; The VaultStock DBMS Solution</span>
+                <p>We <strong>never</strong> update a stock column. Every shipment is recorded as an immutable ledger movement. Stock is calculated live on the fly as <code>SUM(IN) - SUM(OUT)</code>, and an HMAC-SHA256 audit seal is appended automatically.</p>
+              </div>
+            </div>
+
+            <div class="demo-card-proof" id="proofStep1">
+              <span class="proof-label">Live Result:</span>
+              <span class="proof-text mono" id="proofText1">Click "Run Step 1" to receive 10 MacBook Pros.</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Step 2 Card -->
+        <article class="demo-card" data-step="2" id="cardStep2">
+          <div class="demo-card-header">
+            <div class="demo-card-title-group">
+              <span class="demo-card-num">Step 2</span>
+              <div>
+                <h4>The Incorruptible Overdraft Guard (-9,999 Out)</h4>
+                <p class="demo-card-subtitle">Attempt to issue 9,999 units when only 35 exist; witness the database engine halt it.</p>
+              </div>
+            </div>
+            <div class="demo-card-actions">
+              <span class="demo-card-status" id="badgeStep2">Ready</span>
+              <button type="button" class="btn btn-sm btn-primary js-run-step" data-step="2">Run Step 2</button>
+            </div>
+          </div>
+
+          <div class="demo-card-body">
+            <div class="demo-story-grid">
+              <div class="demo-story-box problem">
+                <span class="story-label">&#9888; The Problem in Typical Databases</span>
+                <p>When stock is checked only in the application code (Node.js/Python), race conditions allow simultaneous buyers to purchase more items than exist, leaving negative inventory balances like <code>-9964</code>.</p>
+              </div>
+              <div class="demo-story-box solution">
+                <span class="story-label">&#10004; The VaultStock DBMS Solution</span>
+                <p>SQLite itself guards the door. A <code>BEFORE INSERT</code> trigger called <code>prevent_negative_stock</code> computes the derived balance inside an immediate write transaction. If quantity exceeds balance, SQLite aborts the operation instantly.</p>
+              </div>
+            </div>
+
+            <div class="demo-card-proof" id="proofStep2">
+              <span class="proof-label">Live Result:</span>
+              <span class="proof-text mono" id="proofText2">Click "Run Step 2" to test an overdraft attempt.</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Step 3 Card -->
+        <article class="demo-card" data-step="3" id="cardStep3">
+          <div class="demo-card-header">
+            <div class="demo-card-title-group">
+              <span class="demo-card-num">Step 3</span>
+              <div>
+                <h4>Caught Red-Handed: Insider Tamper Detection</h4>
+                <p class="demo-card-subtitle">Directly mutate Block #1 on disk; watch automatic continuous verification catch it instantly.</p>
+              </div>
+            </div>
+            <div class="demo-card-actions">
+              <span class="demo-card-status" id="badgeStep3">Ready</span>
+              <button type="button" class="btn btn-sm btn-danger js-run-step" data-step="3">Run Step 3</button>
+            </div>
+          </div>
+
+          <div class="demo-card-body">
+            <div class="demo-story-grid">
+              <div class="demo-story-box problem">
+                <span class="story-label">&#9888; The Problem in Typical Databases</span>
+                <p>A rogue administrator or attacker with access to the database server can open the database file with SQLite Browser and alter past records to cover up theft, leaving zero trace in normal logs.</p>
+              </div>
+              <div class="demo-story-box solution">
+                <span class="story-label">&#10004; The VaultStock DBMS Solution</span>
+                <p>Each audit entry contains a cryptographic HMAC-SHA256 seal signed by a key stored <em>outside</em> the database file, linked to the previous block's hash. If a single comma or quantity is edited, the mathematical seal breaks and trips alarms immediately.</p>
+              </div>
+            </div>
+
+            <div class="demo-card-proof" id="proofStep3">
+              <span class="proof-label">Live Result:</span>
+              <span class="proof-text mono" id="proofText3">Click "Run Step 3" to simulate tampering with Block #1.</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Step 4 Card -->
+        <article class="demo-card" data-step="4" id="cardStep4">
+          <div class="demo-card-header">
+            <div class="demo-card-title-group">
+              <span class="demo-card-num">Step 4</span>
+              <div>
+                <h4>One-Click Recovery &amp; Clean Health Check</h4>
+                <p class="demo-card-subtitle">Restore clean seed data and verify that all 5 cryptographic dimensions turn green.</p>
+              </div>
+            </div>
+            <div class="demo-card-actions">
+              <span class="demo-card-status" id="badgeStep4">Ready</span>
+              <button type="button" class="btn btn-sm btn-primary js-run-step" data-step="4">Run Step 4</button>
+            </div>
+          </div>
+
+          <div class="demo-card-body">
+            <div class="demo-story-grid">
+              <div class="demo-story-box problem">
+                <span class="story-label">&#9888; The Problem in Typical Databases</span>
+                <p>When databases corrupt or become untrusted, recovery requires tedious manual rollbacks and re-indexing, leaving teams uncertain if the data is 100% sound.</p>
+              </div>
+              <div class="demo-story-box solution">
+                <span class="story-label">&#10004; The VaultStock DBMS Solution</span>
+                <p>A clean seed reset re-establishes a fresh cryptographic genesis block and an out-of-band anchor file. The 5 verification checks—sequence, hash links, HMAC seals, row matching, and anchor sync—pass with 100% certainty.</p>
+              </div>
+            </div>
+
+            <div class="demo-card-proof" id="proofStep4">
+              <span class="proof-label">Live Result:</span>
+              <span class="proof-text mono" id="proofText4">Click "Run Step 4" to restore the clean database.</span>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- 3. Live Mini Inventory Proof Grid (Real-time Feedback) -->
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Live Warehouse Inventory Proof</h3>
+          <p class="panel-note">Real-time balances calculated dynamically from <code>movements</code> table. Proves stock changes without leaving the demo.</p>
+        </div>
+        <button type="button" id="btnRefreshCatalogProof" class="btn btn-sm">Refresh Balances</button>
+      </div>
+      <div class="table-container">
+        <table class="ledger-table">
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Product Name</th>
+              <th>Category</th>
+              <th class="text-right">Unit Price</th>
+              <th class="text-right">Dynamic Stock</th>
+              <th class="text-right">Total Value</th>
+            </tr>
+          </thead>
+          <tbody id="demoCatalogBody">
+            <tr><td colspan="6" class="text-center">Loading live balances...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Feature & Demo Help Guide Modal -->
+  <div id="helpModal" class="modal-backdrop hidden">
+    <div class="modal-box modal-box-lg">
+      <div class="modal-top">
+        <h3>How VaultStock Works — Architectural Overview</h3>
+        <button type="button" class="btn-icon" id="btnCloseHelp" aria-label="Close">&times;</button>
+      </div>
+
+      <div class="help-grid">
+        <div class="help-card">
+          <h4>1. Calculated Balances (3NF/BCNF)</h4>
+          <p>Traditional databases update a mutable stock column (<code>UPDATE products SET stock = stock - 5</code>), causing race conditions and lost forensic history. VaultStock derives balance dynamically via <code>SUM(IN) - SUM(OUT)</code>.</p>
+          <span class="help-tip">Benefit: Prevents balance desynchronization permanently.</span>
+        </div>
+
+        <div class="help-card">
+          <h4>2. Storage-Layer Immutability</h4>
+          <p>Every inventory entry and product is permanent. SQLite triggers (<code>prevent_movement_update</code> and <code>prevent_movement_delete</code>) halt any <code>UPDATE</code> or <code>DELETE</code> at the database engine layer.</p>
+          <span class="help-tip">Benefit: Defense-in-depth against SQL injection and application bugs.</span>
+        </div>
+
+        <div class="help-card">
+          <h4>3. Concurrency &amp; Overdraft Guard</h4>
+          <p>Before any Stock Out transaction is inserted, SQLite trigger <code>prevent_negative_stock</code> computes live stock and immediately aborts if balance &lt; quantity.</p>
+          <span class="help-tip">Benefit: Overdrafts are mathematically impossible.</span>
+        </div>
+
+        <div class="help-card">
+          <h4>4. Cryptographic HMAC-SHA256 Seals</h4>
+          <p>Every operational transaction appends an audit block chained with <code>prev_hash</code> and signed with an external secret HMAC key stored outside the database file.</p>
+          <span class="help-tip">Benefit: Attackers with raw disk access cannot forge valid signatures.</span>
+        </div>
+
+        <div class="help-card">
+          <h4>5. Out-of-Band Head Anchor</h4>
+          <p>On every transaction, the latest block head is mirrored to an independent checkpoint file (<code>data/audit_head.json</code>) outside SQLite.</p>
+          <span class="help-tip">Benefit: Defeats tail-truncation attacks (deleting the newest records).</span>
+        </div>
+
+        <div class="help-card">
+          <h4>6. Continuous Automatic Verification</h4>
+          <p>Verification runs automatically across all 5 dimensions: sequence contiguity, prev_hash linkage, HMAC integrity, relational reconciliation, and external anchor match.</p>
+          <span class="help-tip">Benefit: Real-time detection without manual auditing overhead.</span>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" id="btnDoneHelp">Got It</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="demo.js"></script>
+</body>
+</html>
+

@@ -12,12 +12,11 @@ Traditional inventory tables update a mutable counter (`UPDATE products SET stoc
 VaultStock enforces strict database guarantees:
 1. **Dynamic Stock Derivation & 3NF Normalization**:
    - The `products` table has **no `quantity` column**.
-   - Current stock and total valuations are computed in real time via the relational view `v_inventory_summary` using `SUM(IN) - SUM(OUT)`.
-   - Reorder threshold alerts are dynamically surfaced via `v_low_stock_alerts`.
-2. **Immutable Append-Only Movement Ledger (`movements`)**:
-   - Every inward receipt and outward issue is an immutable transaction linked to `suppliers` and `locations`.
+   - Global stock and valuations are computed in real time via `v_inventory_summary`, per-warehouse balances via `v_location_inventory` (`SUM(IN) - SUM(OUT)`), and reorder alerts via `v_low_stock_alerts`.
+2. **Immutable Append-Only Movement Ledger (`movements`) & Atomic Transfers**:
+   - Every inward receipt (`IN`), outward dispatch (`OUT`), and inter-warehouse transfer (`OUT` + `IN`) is an immutable transaction linked to `suppliers` and `locations`.
    - SQLite triggers (`BEFORE UPDATE`, `BEFORE DELETE`) permanently abort any attempt to edit or delete historical rows.
-   - The `prevent_negative_stock` trigger rejects any issue that exceeds available balance at the storage layer.
+   - The `prevent_negative_stock` trigger rejects any issue or transfer that exceeds available global or location balance at the storage layer.
 3. **Cryptographic Audit Chain (`audit_log`)**:
    - Every product creation and movement is signed into an append-only audit log chained like **Git commits** using HMAC-SHA256.
    - The 5-Point Verifier checks **Contiguity** ($1..N$), **Linkage** (`prev_hash`), **HMAC Integrity**, **Relational Reconciliation**, and an out-of-band **Head Anchor** (`data/audit_head.json`).
@@ -32,8 +31,9 @@ python run_dev.py
 
 - **Unified Web Dashboard**: [http://localhost:3000](http://localhost:3000)
 - **Interactive Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Direct Interactive SQLite Terminal**: `python inspect_db.py --shell`
+- **Full CLI Database Dump**: `python inspect_db.py`
 - **Run Automated Test Suite**: `python extras/test_suite.py`
-- **CLI Inspector**: `python inspect_db.py`
 
 ---
 
@@ -58,15 +58,14 @@ vaultstock/
 ├── db/                      # Database definition
 │   └── schema.sql           # 3NF schema, indexes, views & immutability triggers
 ├── web/                     # Unified Single-Page Application (SPA)
-│   ├── index.html           # Unified 5-tab dashboard interface
+│   ├── index.html           # Unified 4-tab dashboard interface
 │   ├── style.css            # Responsive design system (Light & Dark modes)
-│   ├── app.js               # Reactive client logic, tamper demo & diagnostics
+│   ├── app.js               # Reactive client logic, transfers, flowchart & diagnostics
 │   └── theme.js             # Theme initialization script
 ├── extras/                  # Supplementary documentation & tests
-│   ├── VIVA_DEFENSE_GUIDE.md # 3-member presentation scripts & top 10 viva Q&As
 │   ├── ER_DIAGRAM.md        # Entity-Relationship diagram & cardinality rules
 │   ├── NORMALIZATION.md     # 1NF, 2NF, 3NF normalization proofs
-│   ├── test_suite.py        # Automated 24-step verification test suite
+│   ├── test_suite.py        # Automated 25-step verification test suite
 │   └── ...
 ├── data/                    # SQLite database & HMAC keys (auto-generated)
 ├── inspect_db.py            # CLI database inspector & query tool

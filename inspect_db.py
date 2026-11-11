@@ -147,7 +147,8 @@ def interactive_shell(conn: sqlite3.Connection) -> None:
             t_names = [r["name"] for r in cur.fetchall()]
             rows = []
             for t in t_names:
-                cnt = cur.execute(f'SELECT COUNT(*) FROM "{t}";').fetchone()[0]
+                safe_t = t.replace('"', '""')
+                cnt = cur.execute(f'SELECT COUNT(*) FROM "{safe_t}";').fetchone()[0]
                 rows.append([t, "TABLE", cnt])
             print_ascii_table(["Table Name", "Type", "Row Count"], rows)
             continue

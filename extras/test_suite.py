@@ -130,7 +130,7 @@ record("T3", "Staff role rejected on admin-only route (403)", t3_passed)
 # -----------------------------------------------------------------------------
 fake_tok = jwt.encode(
     {"sub": "1", "iat": int(time.time()), "exp": int(time.time()) + 3600, "iss": "vaultstock"},
-    "forged-unauthorized-key",
+    "forged-unauthorized-secret-key-32-bytes-minimum!",
     algorithm="HS256",
 )
 t4_passed = False

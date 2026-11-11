@@ -316,41 +316,43 @@ def tamper_for_demo(block_id: int = 1) -> dict:
     try:
         cur = conn.cursor()
         cur.execute("DROP TRIGGER IF EXISTS prevent_audit_update;")
-        cur.execute("SELECT * FROM audit_log WHERE id = ?;", (block_id,))
-        target = cur.fetchone()
-        if not target:
-            return {"status": "error", "message": f"Block #{block_id} not found"}
+        try:
+            cur.execute("SELECT * FROM audit_log WHERE id = ?;", (block_id,))
+            target = cur.fetchone()
+            if not target:
+                return {"status": "error", "message": f"Block #{block_id} not found"}
 
-        fake_msg = json.dumps(
-            [
-                target["prev_hash"],
-                target["id"],
-                target["action"],
-                target["actor"],
-                target["ref_table"],
-                target["ref_id"],
-                target["payload"],
-                target["timestamp"],
-            ],
-            separators=(",", ":"),
-            ensure_ascii=False,
-        )
-        fake_hash = hashlib.sha256(fake_msg.encode("utf-8")).hexdigest()
+            fake_msg = json.dumps(
+                [
+                    target["prev_hash"],
+                    target["id"],
+                    target["action"],
+                    target["actor"],
+                    target["ref_table"],
+                    target["ref_id"],
+                    target["payload"],
+                    target["timestamp"],
+                ],
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            fake_hash = hashlib.sha256(fake_msg.encode("utf-8")).hexdigest()
 
-        cur.execute(
-            "UPDATE audit_log SET details = ?, row_hash = ? WHERE id = ?;",
-            (target["details"] + " [TAMPERED - UNKEYED HASH]", fake_hash, block_id),
-        )
-        cur.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS prevent_audit_update
-            BEFORE UPDATE ON audit_log
-            BEGIN
-                SELECT RAISE(ABORT, 'SECURITY VIOLATION: Audit log is immutable.');
-            END;
-            """
-        )
-        return {"status": "tampered", "type": "file_level", "fake_hash": fake_hash}
+            cur.execute(
+                "UPDATE audit_log SET details = ?, row_hash = ? WHERE id = ?;",
+                (target["details"] + " [TAMPERED - UNKEYED HASH]", fake_hash, block_id),
+            )
+            return {"status": "tampered", "type": "file_level", "fake_hash": fake_hash}
+        finally:
+            cur.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS prevent_audit_update
+                BEFORE UPDATE ON audit_log
+                BEGIN
+                    SELECT RAISE(ABORT, 'SECURITY VIOLATION: Audit log is immutable.');
+                END;
+                """
+            )
     finally:
         conn.close()
 

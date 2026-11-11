@@ -64,12 +64,19 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
+    is_docs = DEMO_MODE and request.url.path in ("/docs", "/openapi.json")
+    csp = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https://fastapi.tiangolo.com; frame-ancestors 'none'"
+        if is_docs
+        else "default-src 'none'; frame-ancestors 'none'"
+    )
     response.headers.update({
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
         "Referrer-Policy": "no-referrer",
         "Cache-Control": "no-store",
-        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Content-Security-Policy": csp,
     })
     return response
 
@@ -87,6 +94,7 @@ _LIMITER_LOCK = threading.Lock()
 _LOGIN_FAILS: dict[str, deque] = {}
 MAX_LOGIN_FAILS = 5
 LOGIN_WINDOW_SECONDS = 900  # 15 minutes
+MAX_TRACKED_KEYS = 2048
 
 def is_login_throttled(key: str) -> bool:
     now = time.time()
@@ -104,6 +112,13 @@ def is_login_throttled(key: str) -> bool:
 def record_login_failure(key: str) -> None:
     now = time.time()
     with _LIMITER_LOCK:
+        if len(_LOGIN_FAILS) >= MAX_TRACKED_KEYS and key not in _LOGIN_FAILS:
+            expired = [k for k, q in _LOGIN_FAILS.items() if not q or now - q[-1] > LOGIN_WINDOW_SECONDS]
+            for k in expired:
+                _LOGIN_FAILS.pop(k, None)
+            if len(_LOGIN_FAILS) >= MAX_TRACKED_KEYS:
+                oldest_key = next(iter(_LOGIN_FAILS))
+                _LOGIN_FAILS.pop(oldest_key, None)
         if key not in _LOGIN_FAILS:
             _LOGIN_FAILS[key] = deque()
         _LOGIN_FAILS[key].append(now)

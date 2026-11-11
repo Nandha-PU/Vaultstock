@@ -473,8 +473,7 @@ code, pre, .sku-code, .hash-code {
   opacity: 0.9;
 }
 
-.btn-db-table.active,
-.btn-fulldb-filter.active {
+.btn-db-table.active {
   background-color: var(--accent) !important;
   color: var(--accent-fg) !important;
   border-color: var(--accent) !important;
@@ -671,11 +670,6 @@ select:focus {
    Audit & Verification Matrix Bento
    ========================================================================== */
 
-.audit-status-tile {
-  justify-content: space-between;
-  gap: 20px;
-}
-
 .status-indicator-badge {
   display: inline-block;
   font-family: var(--font-mono);
@@ -697,58 +691,6 @@ select:focus {
   background-color: var(--red-bg);
   color: var(--red-fg);
   border: 1px solid var(--red-border);
-}
-
-.audit-title {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  margin-bottom: 6px;
-}
-
-.audit-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.audit-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.check-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.check-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-ctrl);
-}
-
-.check-item.span-full {
-  grid-column: span 2;
-}
-
-.check-item strong {
-  display: block;
-  font-size: 12.5px;
-  color: var(--text-main);
-}
-
-.check-item small {
-  font-size: 11.5px;
-  color: var(--text-muted);
 }
 
 .check-dot {
@@ -1059,10 +1001,6 @@ select:focus {
   gap: 14px;
 }
 
-.modal-lg {
-  max-width: 760px;
-}
-
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -1090,64 +1028,6 @@ select:focus {
   gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
-}
-
-.viva-guide-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 68vh;
-  overflow-y: auto;
-}
-
-.viva-guide-body h4 {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.viva-quote {
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  padding: 12px 14px;
-  border-radius: var(--radius-ctrl);
-  font-size: 13px;
-}
-
-.viva-roles-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-@media (max-width: 680px) {
-  .viva-roles-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.viva-role-card {
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-ctrl);
-  padding: 12px;
-  font-size: 12px;
-}
-
-.viva-role-card strong {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--text-main);
-}
-
-.viva-role-card ul {
-  padding-left: 16px;
-  color: var(--text-muted);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 
@@ -1378,43 +1258,6 @@ select:focus {
   fill: var(--text-muted);
   font-size: 9.5px;
   font-weight: 600;
-}
-
-.full-dump-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-  width: 100%;
-}
-
-.dump-object-card {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-bento);
-  padding: var(--pad-bento);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.dump-object-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.dump-object-header h4 {
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-  color: var(--text-main);
 }
 
 /* ==========================================================================

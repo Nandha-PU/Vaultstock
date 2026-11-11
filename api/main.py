@@ -366,10 +366,8 @@ def list_products(user: dict = Depends(require_any)):
         cur.execute("""
             SELECT
                 product_id AS id,
-                product_id,
                 sku,
                 product_name AS name,
-                product_name,
                 category_id,
                 category_name,
                 category_code,
@@ -738,7 +736,6 @@ def list_movements(
         cur.execute("""
             SELECT
                 movement_id AS id,
-                movement_id,
                 created_at,
                 type,
                 qty,

@@ -508,6 +508,7 @@ def reset_demo_db() -> None:
     try:
         conn.executescript(
             """
+            DROP VIEW IF EXISTS v_location_inventory;
             DROP VIEW IF EXISTS v_ledger_history;
             DROP VIEW IF EXISTS v_low_stock_alerts;
             DROP VIEW IF EXISTS v_inventory_summary;
@@ -593,6 +594,7 @@ ALLOWED_DB_OBJECTS = {
     "v_inventory_summary",
     "v_low_stock_alerts",
     "v_ledger_history",
+    "v_location_inventory",
 }
 
 
@@ -680,6 +682,7 @@ def get_full_database_dump(limit: int = 50) -> dict:
         "v_inventory_summary",
         "v_low_stock_alerts",
         "v_ledger_history",
+        "v_location_inventory",
     ]
 
     return {

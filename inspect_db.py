@@ -11,6 +11,7 @@ Usage:
 """
 
 import sys
+import time
 import sqlite3
 from pathlib import Path
 
@@ -114,9 +115,12 @@ def inspect_object(conn: sqlite3.Connection, name: str) -> None:
 
 def interactive_shell(conn: sqlite3.Connection) -> None:
     print("=" * 80)
-    print(f" VaultStock Interactive SQLite Shell")
-    print(f" Connected to: {DB_PATH}")
-    print(" Type any SQL query (e.g. SELECT * FROM products;) or 'exit' to quit.")
+    print(" VaultStock — Direct SQLite Terminal Shell")
+    print(f" Database File : {DB_PATH}")
+    print(" Engine State  : WAL Mode | PRAGMA foreign_keys = ON | Triggers = ACTIVE")
+    print("-" * 80)
+    print(" Dot Commands  : .help | .tables | .views | .triggers | .schema [name] | .dump [name] | exit")
+    print(" Raw SQL       : Type any SQL statement (SELECT, INSERT, UPDATE, DELETE, PRAGMA, EXPLAIN)")
     print("=" * 80)
     cur = conn.cursor()
     while True:
@@ -127,23 +131,72 @@ def interactive_shell(conn: sqlite3.Connection) -> None:
             break
         if not query:
             continue
-        if query.lower() in ("exit", "quit", ".exit", ".quit"):
+        lower_q = query.lower()
+        if lower_q in ("exit", "quit", ".exit", ".quit"):
             break
-        if query.lower() == ".tables":
-            query = "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%';"
+        if lower_q == ".help":
+            print("  .tables          List all physical 3NF tables and row counts")
+            print("  .views           List all compiled relational views")
+            print("  .triggers        List all active SQLite storage triggers")
+            print("  .schema [name]   Show CREATE TABLE / VIEW / TRIGGER DDL statements")
+            print("  .dump <name>     Inspect columns, foreign keys, and rows of a table/view")
+            print("  exit / .quit     Close the interactive SQL shell")
+            continue
+        if lower_q == ".tables":
+            cur.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")
+            t_names = [r["name"] for r in cur.fetchall()]
+            rows = []
+            for t in t_names:
+                cnt = cur.execute(f'SELECT COUNT(*) FROM "{t}";').fetchone()[0]
+                rows.append([t, "TABLE", cnt])
+            print_ascii_table(["Table Name", "Type", "Row Count"], rows)
+            continue
+        if lower_q == ".views":
+            cur.execute("SELECT name, sql FROM sqlite_master WHERE type = 'view' ORDER BY name;")
+            v_rows = [[r["name"], "VIEW", (r["sql"] or "").replace("\n", " ")] for r in cur.fetchall()]
+            print_ascii_table(["View Name", "Type", "Definition"], v_rows, max_col_width=52)
+            continue
+        if lower_q == ".triggers":
+            cur.execute("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY tbl_name, name;")
+            t_rows = [[r["name"], r["tbl_name"], (r["sql"] or "").replace("\n", " ")] for r in cur.fetchall()]
+            print_ascii_table(["Trigger Name", "Target Table", "DDL"], t_rows, max_col_width=46)
+            continue
+        if lower_q.startswith(".schema"):
+            parts = query.split(maxsplit=1)
+            if len(parts) > 1:
+                cur.execute("SELECT type, name, sql FROM sqlite_master WHERE name = ?;", (parts[1].strip(";"),))
+            else:
+                cur.execute("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name;")
+            items = cur.fetchall()
+            if not items:
+                print("[!] No matching schema object found.")
+            for item in items:
+                print(f"\n-- {item['type'].upper()}: {item['name']}\n{item['sql']};")
+            continue
+        if lower_q.startswith(".dump"):
+            parts = query.split(maxsplit=1)
+            if len(parts) > 1:
+                inspect_object(conn, parts[1].strip(";"))
+            else:
+                print("Usage: .dump <table_or_view_name>")
+            continue
+
+        t0 = time.perf_counter()
         try:
             cur.execute(query)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
             if cur.description:
                 headers = [d[0] for d in cur.description]
                 rows = cur.fetchall()
-                print_ascii_table(headers, [list(r) for r in rows], max_col_width=40)
-                print(f"({len(rows)} rows returned)")
+                print_ascii_table(headers, [list(r) for r in rows], max_col_width=42)
+                print(f"({len(rows)} row(s) returned in {elapsed_ms:.2f} ms)")
             else:
                 if conn.isolation_level is not None:
                     conn.commit()
-                print(f"Query executed successfully. Rows affected: {cur.rowcount}")
+                print(f"Statement executed successfully ({elapsed_ms:.2f} ms). Rows affected: {cur.rowcount}")
         except Exception as e:
-            print(f"[SQL Error]: {e}")
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            print(f"[SQLite Engine Error ({elapsed_ms:.2f} ms)]: {e}")
 
 
 def main() -> None:
@@ -155,6 +208,24 @@ def main() -> None:
         args = sys.argv[1:]
         if "--shell" in args or "-s" in args:
             interactive_shell(conn)
+            return
+
+        if len(args) >= 2 and args[0] in ("-c", "--cmd"):
+            sql_cmd = " ".join(args[1:])
+            cur = conn.cursor()
+            t0 = time.perf_counter()
+            try:
+                cur.execute(sql_cmd)
+                elapsed_ms = (time.perf_counter() - t0) * 1000
+                if cur.description:
+                    headers = [d[0] for d in cur.description]
+                    rows = cur.fetchall()
+                    print_ascii_table(headers, [list(r) for r in rows], max_col_width=42)
+                    print(f"({len(rows)} row(s) in {elapsed_ms:.2f} ms)")
+                else:
+                    print(f"Executed ({elapsed_ms:.2f} ms). Rows affected: {cur.rowcount}")
+            except Exception as e:
+                print(f"[SQLite Engine Error]: {e}")
             return
 
         if args:
@@ -177,11 +248,12 @@ def main() -> None:
             "v_inventory_summary",
             "v_low_stock_alerts",
             "v_ledger_history",
+            "v_location_inventory",
         ]
         for obj in ordered_objects:
             inspect_object(conn, obj)
 
-        print("\nTip: Run 'python inspect_db.py --shell' to open an interactive SQL query prompt!")
+        print("\nTip: Run 'python inspect_db.py --shell' to open the direct interactive SQL terminal!")
     finally:
         conn.close()
 

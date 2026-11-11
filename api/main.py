@@ -166,6 +166,21 @@ class MovementCreate(_Strict):
             raise ValueError("Control characters are not permitted")
         return v
 
+class TransferCreate(_Strict):
+    product_id: int = Field(gt=0, le=2_147_483_647)
+    from_location_id: int = Field(gt=0, le=2_147_483_647)
+    to_location_id: int = Field(gt=0, le=2_147_483_647)
+    qty: int = Field(gt=0, le=1_000_000)
+    reference_doc: Optional[str] = Field(default=None, max_length=60)
+    note: str = Field(default="Inter-warehouse stock transfer", max_length=200)
+
+    @field_validator("note", "reference_doc")
+    @classmethod
+    def sanitize_text(cls, v: Optional[str]) -> Optional[str]:
+        if v and any(ord(c) < 32 for c in v):
+            raise ValueError("Control characters are not permitted")
+        return v
+
 class SqlProbeRequest(_Strict):
     probe_type: Literal[
         "explain_stock",
@@ -371,6 +386,21 @@ def list_low_stock_alerts(user: dict = Depends(require_any)):
     finally:
         conn.close()
 
+@app.get("/api/inventory/locations")
+def list_location_inventory(user: dict = Depends(require_any)):
+    """Retrieves per-warehouse stock balances derived from view v_location_inventory."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT product_id, sku, product_name, location_id, location_code, location_name, current_stock
+            FROM v_location_inventory
+            ORDER BY product_id ASC, location_id ASC;
+        """)
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
 @app.post("/api/products")
 def create_product(prod: ProductCreate, user: dict = Depends(require_admin)):
     conn = get_connection()
@@ -468,9 +498,23 @@ def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
                         raise HTTPException(status_code=400, detail="Invalid supplier_id: Supplier does not exist.")
 
             effective_location_id = move.location_id or 1
-            cur.execute("SELECT id FROM locations WHERE id = ?;", (effective_location_id,))
-            if not cur.fetchone():
+            cur.execute("SELECT id, code, name FROM locations WHERE id = ?;", (effective_location_id,))
+            loc_row = cur.fetchone()
+            if not loc_row:
                 raise HTTPException(status_code=400, detail="Invalid location_id: Location does not exist.")
+
+            if move.type == "OUT":
+                cur.execute("""
+                    SELECT COALESCE(SUM(CASE WHEN type = 'IN' THEN qty ELSE -qty END), 0) AS loc_balance
+                    FROM movements
+                    WHERE product_id = ? AND location_id = ?;
+                """, (move.product_id, effective_location_id))
+                loc_bal = cur.fetchone()["loc_balance"]
+                if loc_bal < move.qty:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Insufficient inventory at {loc_row['code']}! Location balance is {loc_bal}, cannot issue {move.qty} units.",
+                    )
 
             # 3. Insert append-only movement
             cur.execute("""
@@ -528,6 +572,141 @@ def record_movement(move: MovementCreate, user: dict = Depends(require_any)):
         conn.close()
 
     return {"message": f"Recorded stock {move.type} successfully"}
+
+@app.post("/api/movements/transfer")
+def transfer_stock(transfer: TransferCreate, user: dict = Depends(require_any)):
+    """Atomically transfers stock between two warehouse locations using paired OUT and IN ledger entries."""
+    if transfer.from_location_id == transfer.to_location_id:
+        raise HTTPException(status_code=400, detail="Source and destination locations must be different.")
+
+    conn = get_connection()
+    try:
+        with write_tx(conn):
+            cur = conn.cursor()
+
+            # 1. Verify Product exists
+            cur.execute("SELECT id, name, sku FROM products WHERE id = ?;", (transfer.product_id,))
+            prod = cur.fetchone()
+            if not prod:
+                raise HTTPException(status_code=404, detail="Product not found")
+
+            # 2. Verify both Locations exist
+            cur.execute("SELECT id, code, name FROM locations WHERE id = ?;", (transfer.from_location_id,))
+            from_loc = cur.fetchone()
+            if not from_loc:
+                raise HTTPException(status_code=400, detail="Source location does not exist")
+
+            cur.execute("SELECT id, code, name FROM locations WHERE id = ?;", (transfer.to_location_id,))
+            to_loc = cur.fetchone()
+            if not to_loc:
+                raise HTTPException(status_code=400, detail="Destination location does not exist")
+
+            # 3. Verify available stock at source location
+            cur.execute("""
+                SELECT COALESCE(SUM(CASE WHEN type = 'IN' THEN qty ELSE -qty END), 0) AS loc_balance
+                FROM movements
+                WHERE product_id = ? AND location_id = ?;
+            """, (transfer.product_id, transfer.from_location_id))
+            src_balance = cur.fetchone()["loc_balance"]
+            if src_balance < transfer.qty:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient stock at {from_loc['code']} ({src_balance} available, cannot transfer {transfer.qty}).",
+                )
+
+            ref_doc = transfer.reference_doc or f"XFER-{from_loc['code']}-{to_loc['code']}"
+            out_note = f"{transfer.note} (Transfer OUT to {to_loc['code']})"[:200]
+            in_note = f"{transfer.note} (Transfer IN from {from_loc['code']})"[:200]
+
+            # 4. Insert OUT movement from source location
+            cur.execute("""
+                INSERT INTO movements (product_id, supplier_id, location_id, type, qty, reference_doc, note, created_by)
+                VALUES (?, NULL, ?, 'OUT', ?, ?, ?, ?);
+            """, (
+                transfer.product_id,
+                transfer.from_location_id,
+                transfer.qty,
+                ref_doc,
+                out_note,
+                user["username"],
+            ))
+            out_id = cur.lastrowid
+            out_payload = {
+                "created_by": user["username"],
+                "id": out_id,
+                "location_id": transfer.from_location_id,
+                "note": out_note,
+                "product_id": transfer.product_id,
+                "qty": transfer.qty,
+                "reference_doc": ref_doc,
+                "supplier_id": None,
+                "type": "OUT",
+            }
+            append_audit_entry(
+                conn=conn,
+                action="STOCK_TRANSFER_OUT",
+                actor=user["username"],
+                ref_table="movements",
+                ref_id=out_id,
+                payload=out_payload,
+                details=f"Transfer OUT: {transfer.qty} units of '{prod['name']}' from {from_loc['code']} -> {to_loc['code']} [Ref: {ref_doc}]",
+            )
+
+            # 5. Insert IN movement into destination location
+            cur.execute("""
+                INSERT INTO movements (product_id, supplier_id, location_id, type, qty, reference_doc, note, created_by)
+                VALUES (?, NULL, ?, 'IN', ?, ?, ?, ?);
+            """, (
+                transfer.product_id,
+                transfer.to_location_id,
+                transfer.qty,
+                ref_doc,
+                in_note,
+                user["username"],
+            ))
+            in_id = cur.lastrowid
+            in_payload = {
+                "created_by": user["username"],
+                "id": in_id,
+                "location_id": transfer.to_location_id,
+                "note": in_note,
+                "product_id": transfer.product_id,
+                "qty": transfer.qty,
+                "reference_doc": ref_doc,
+                "supplier_id": None,
+                "type": "IN",
+            }
+            append_audit_entry(
+                conn=conn,
+                action="STOCK_TRANSFER_IN",
+                actor=user["username"],
+                ref_table="movements",
+                ref_id=in_id,
+                payload=in_payload,
+                details=f"Transfer IN: {transfer.qty} units of '{prod['name']}' into {to_loc['code']} from {from_loc['code']} [Ref: {ref_doc}]",
+            )
+
+        sync_anchor_to_latest(conn)
+    except HTTPException:
+        raise
+    except (sqlite3.IntegrityError, sqlite3.OperationalError) as e:
+        logger.warning("Database constraint violation during transfer: %s", str(e))
+        err_msg = str(e)
+        if "SECURITY VIOLATION" in err_msg:
+            clean_msg = err_msg.split("SECURITY VIOLATION:")[-1].strip()
+            raise HTTPException(status_code=409, detail=f"Security violation: {clean_msg}")
+        raise HTTPException(status_code=409, detail="Transfer rejected by database integrity rules")
+    except Exception:
+        logger.exception("Unexpected error transferring stock")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        conn.close()
+
+    return {
+        "message": f"Transferred {transfer.qty} units from {from_loc['code']} to {to_loc['code']} successfully",
+        "out_movement_id": out_id,
+        "in_movement_id": in_id,
+    }
 
 @app.get("/api/movements")
 def list_movements(

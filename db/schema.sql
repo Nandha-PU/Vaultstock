@@ -84,14 +84,18 @@ CREATE INDEX IF NOT EXISTS idx_movements_product_id ON movements(product_id);
 CREATE INDEX IF NOT EXISTS idx_movements_supplier_id ON movements(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_movements_location_id ON movements(location_id);
 
--- Negative-stock guard at the DB layer (defense-in-depth against overdrafts)
+-- Negative-stock guard at the DB layer (defense-in-depth against global and per-location overdrafts)
+DROP TRIGGER IF EXISTS prevent_negative_stock;
 CREATE TRIGGER IF NOT EXISTS prevent_negative_stock
 BEFORE INSERT ON movements
 WHEN NEW.type = 'OUT'
 BEGIN
     SELECT RAISE(ABORT, 'SECURITY VIOLATION: Insufficient stock.')
     WHERE (SELECT COALESCE(SUM(CASE WHEN type = 'IN' THEN qty ELSE -qty END), 0)
-           FROM movements WHERE product_id = NEW.product_id) < NEW.qty;
+           FROM movements WHERE product_id = NEW.product_id) < NEW.qty
+       OR (NEW.location_id IS NOT NULL AND
+           (SELECT COALESCE(SUM(CASE WHEN type = 'IN' THEN qty ELSE -qty END), 0)
+            FROM movements WHERE product_id = NEW.product_id AND location_id = NEW.location_id) < NEW.qty);
 END;
 
 -- Movement ledger immutability triggers (strictly append-only)
@@ -186,3 +190,19 @@ LEFT JOIN categories c ON p.category_id = c.id
 LEFT JOIN suppliers s ON m.supplier_id = s.id
 LEFT JOIN locations l ON m.location_id = l.id
 ORDER BY m.id DESC;
+
+-- View 4: Per-location warehouse stock balance (derived via SUM(IN) - SUM(OUT))
+CREATE VIEW IF NOT EXISTS v_location_inventory AS
+SELECT
+    p.id AS product_id,
+    p.sku,
+    p.name AS product_name,
+    l.id AS location_id,
+    l.code AS location_code,
+    l.name AS location_name,
+    COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.qty ELSE -m.qty END), 0) AS current_stock
+FROM products p
+CROSS JOIN locations l
+LEFT JOIN movements m ON m.product_id = p.id AND m.location_id = l.id
+GROUP BY p.id, l.id
+HAVING current_stock > 0;

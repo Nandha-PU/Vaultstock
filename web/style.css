@@ -171,6 +171,7 @@ code, pre, .sku-code, .hash-code {
 }
 
 .span-3  { grid-column: span 3; min-width: 0; }
+.span-4  { grid-column: span 4; min-width: 0; }
 .span-5  { grid-column: span 5; min-width: 0; }
 .span-6  { grid-column: span 6; min-width: 0; }
 .span-7  { grid-column: span 7; min-width: 0; }
@@ -178,7 +179,7 @@ code, pre, .sku-code, .hash-code {
 
 @media (max-width: 1024px) {
   .span-3 { grid-column: span 6; }
-  .span-5, .span-7, .span-6 { grid-column: span 12; }
+  .span-4, .span-5, .span-7, .span-6 { grid-column: span 12; }
 }
 
 @media (max-width: 640px) {
@@ -1415,4 +1416,190 @@ select:focus {
   font-size: 13.5px;
   color: var(--text-main);
 }
+
+/* ==========================================================================
+   Warehouse Badges, Streamlined Audit Bar & Defense-in-Depth Flowchart
+   ========================================================================== */
+
+.loc-badges-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.audit-streamlined-bar {
+  gap: 14px;
+}
+
+.audit-streamlined-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.audit-streamlined-title-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.audit-streamlined-title-group .status-indicator-badge {
+  margin-bottom: 0;
+  padding: 5px 11px;
+  font-size: 11.5px;
+}
+
+.audit-title-inline {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-main);
+}
+
+.audit-desc-inline {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.audit-streamlined-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.check-strip-compact {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 1024px) {
+  .check-strip-compact {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .check-strip-compact {
+    grid-template-columns: 1fr;
+  }
+}
+
+.check-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+}
+
+.check-pill strong {
+  display: block;
+  font-size: 12px;
+  color: var(--text-main);
+  line-height: 1.25;
+}
+
+.check-pill small {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* 6-Stage Data Request & Defense-in-Depth Flowchart */
+.defense-flowchart {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr auto 1fr auto 1fr;
+  align-items: stretch;
+  gap: 8px;
+}
+
+@media (max-width: 1200px) {
+  .defense-flowchart {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .flow-arrow {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .defense-flowchart {
+    grid-template-columns: 1fr;
+  }
+}
+
+.flow-stage {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.flow-stage-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.flow-step-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.flow-stage h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.flow-stage p {
+  font-size: 11.8px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  flex: 1;
+}
+
+.flow-defense-tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 5px 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-main);
+  line-height: 1.35;
+}
+
+.flow-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+
 

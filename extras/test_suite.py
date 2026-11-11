@@ -34,6 +34,7 @@ from api.main import (
     issue_token,
     list_audit_trail,
     list_categories,
+    list_location_inventory,
     list_locations,
     list_low_stock_alerts,
     list_movements,
@@ -42,10 +43,12 @@ from api.main import (
     record_movement,
     reset_database,
     simulate_tamper,
+    transfer_stock,
     verify_integrity,
     LoginRequest,
     MovementCreate,
     ProductCreate,
+    TransferCreate,
     _LOGIN_FAILS,
 )
 from api.config import (
@@ -395,6 +398,32 @@ reset_res = reset_database(admin_user)
 v_reset = verify_integrity(admin_user)
 f4_passed = v_reset["verified"] is True and all(v_reset["checks"].values())
 record("F4", "Reset demo cleanly reseeds database and passes cryptographic audit", f4_passed, f"Total blocks: {v_reset['total_blocks']}")
+
+# F5: Multi-Warehouse Stock Transfer & Location Balance Derivation (v_location_inventory)
+# Product #1 starts with 25 units at location_id=1 (WH-A1) and 0 at location_id=3 (RETAIL-1)
+xfer_res = transfer_stock(
+    TransferCreate(
+        product_id=1,
+        from_location_id=1,
+        to_location_id=3,
+        qty=10,
+        reference_doc="XFER-TEST-01",
+        note="Restock retail floor",
+    ),
+    admin_user,
+)
+loc_inv = list_location_inventory(admin_user)
+p1_loc1 = next((r["current_stock"] for r in loc_inv if r["product_id"] == 1 and r["location_id"] == 1), 0)
+p1_loc3 = next((r["current_stock"] for r in loc_inv if r["product_id"] == 1 and r["location_id"] == 3), 0)
+p1_global = next(p["current_stock"] for p in list_products(admin_user) if p["id"] == 1)
+v_after_xfer = verify_integrity(admin_user)
+f5_passed = (p1_loc1 == 15) and (p1_loc3 == 10) and (p1_global == 25) and v_after_xfer["verified"]
+record(
+    "F5",
+    "Atomic warehouse transfer updates v_location_inventory while preserving global stock & audit chain",
+    f5_passed,
+    f"WH-A1: {p1_loc1}, RETAIL-1: {p1_loc3}, Total: {p1_global}",
+)
 
 print("\n" + "=" * 70)
 total_tests = len(results)

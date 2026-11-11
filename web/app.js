@@ -23,6 +23,7 @@ let cachedProducts = [];
 let cachedCategories = [];
 let cachedSuppliers = [];
 let cachedLocations = [];
+let cachedLocationBalances = [];
 
 // ============================================================================
 // DOM References
@@ -46,10 +47,8 @@ const btnNavInventory = document.getElementById("btnNavInventory");
 const btnNavOperations = document.getElementById("btnNavOperations");
 const btnNavAudit = document.getElementById("btnNavAudit");
 const btnNavDiagnostics = document.getElementById("btnNavDiagnostics");
-const btnNavFullDb = document.getElementById("btnNavFullDb");
 const chainStatusDot = document.getElementById("chainStatusDot");
 const chainStatusText = document.getElementById("chainStatusText");
-const btnOpenHelp = document.getElementById("btnOpenHelp");
 const btnThemeToggle = document.getElementById("btnThemeToggle");
 const userBadge = document.getElementById("userBadge");
 const btnLogout = document.getElementById("btnLogout");
@@ -61,7 +60,6 @@ const tabInventory = document.getElementById("tabInventory");
 const tabOperations = document.getElementById("tabOperations");
 const tabAudit = document.getElementById("tabAudit");
 const tabDiagnostics = document.getElementById("tabDiagnostics");
-const tabFullDb = document.getElementById("tabFullDb");
 
 // Tab 1: Inventory
 const kpiTotalProducts = document.getElementById("kpiTotalProducts");
@@ -94,6 +92,16 @@ const dispatchQty = document.getElementById("dispatchQty");
 const dispatchRefDoc = document.getElementById("dispatchRefDoc");
 const dispatchNote = document.getElementById("dispatchNote");
 const dispatchBalanceSpan = document.getElementById("dispatchBalanceSpan");
+
+const formTransferStock = document.getElementById("formTransferStock");
+const transferProductSelect = document.getElementById("transferProductSelect");
+const transferFromLocationSelect = document.getElementById("transferFromLocationSelect");
+const transferToLocationSelect = document.getElementById("transferToLocationSelect");
+const transferQty = document.getElementById("transferQty");
+const transferRefDoc = document.getElementById("transferRefDoc");
+const transferNote = document.getElementById("transferNote");
+const transferBalanceSpan = document.getElementById("transferBalanceSpan");
+
 const movementTableBody = document.getElementById("movementTableBody");
 
 // Tab 3: Audit
@@ -132,10 +140,6 @@ const newProdName = document.getElementById("newProdName");
 const newProdCategory = document.getElementById("newProdCategory");
 const newProdPrice = document.getElementById("newProdPrice");
 const newProdThreshold = document.getElementById("newProdThreshold");
-
-const vivaGuideModal = document.getElementById("vivaGuideModal");
-const btnCloseVivaGuide = document.getElementById("btnCloseVivaGuide");
-const btnDoneVivaGuide = document.getElementById("btnDoneVivaGuide");
 
 // ============================================================================
 // Theme Management
@@ -318,7 +322,6 @@ const tabs = [
   { btn: btnNavOperations, pane: tabOperations },
   { btn: btnNavAudit, pane: tabAudit },
   { btn: btnNavDiagnostics, pane: tabDiagnostics },
-  { btn: btnNavFullDb, pane: tabFullDb },
 ];
 
 function switchTab(targetPane) {
@@ -344,8 +347,6 @@ function switchTab(targetPane) {
     loadAuditTrail();
   } else if (targetPane === tabDiagnostics) {
     loadDiagnostics();
-  } else if (targetPane === tabFullDb) {
-    loadFullDbPage();
   }
 }
 
@@ -405,12 +406,18 @@ function populateSelects() {
     receiveSupplierSelect.appendChild(opt);
   });
 
-  // Location in Receive Stock & Dispatch
+  // Location in Receive Stock, Dispatch & Transfer
   const locOptions = cachedLocations
-    .map((l) => `<option value="${l.id}">${l.name} (${l.code})</option>`)
+    .map((l) => `<option value="${l.id}">${escapeHtml(l.name)} (${escapeHtml(l.code)})</option>`)
     .join("");
   receiveLocationSelect.innerHTML = '<option value="">-- Choose Location --</option>' + locOptions;
   dispatchLocationSelect.innerHTML = '<option value="">-- Choose Location --</option>' + locOptions;
+  if (transferFromLocationSelect) {
+    transferFromLocationSelect.innerHTML = '<option value="">-- Source --</option>' + locOptions;
+  }
+  if (transferToLocationSelect) {
+    transferToLocationSelect.innerHTML = '<option value="">-- Destination --</option>' + locOptions;
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -418,22 +425,36 @@ function populateSelects() {
 // ----------------------------------------------------------------------------
 async function loadProducts() {
   try {
-    const products = await apiCall("/products");
+    const [products, locBalances] = await Promise.all([
+      apiCall("/products"),
+      apiCall("/inventory/locations").catch(() => []),
+    ]);
     cachedProducts = products;
+    cachedLocationBalances = locBalances || [];
     renderInventory();
     populateProductSelects();
   } catch (err) {
-    productTableBody.innerHTML = `<tr><td colspan="9" class="text-center text-error">Failed to load inventory: ${escapeHtml(err.message)}</td></tr>`;
+    productTableBody.innerHTML = `<tr><td colspan="10" class="text-center text-error">Failed to load inventory: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
 function populateProductSelects() {
   const pOpts = cachedProducts
-    .map((p) => `<option value="${p.id}">${escapeHtml(p.name)} [${escapeHtml(p.sku)}] (Current Stock: ${p.current_stock})</option>`)
+    .map((p) => `<option value="${p.id}">${escapeHtml(p.name)} [${escapeHtml(p.sku)}] (Total: ${p.current_stock})</option>`)
     .join("");
 
   receiveProductSelect.innerHTML = '<option value="">-- Choose Product --</option>' + pOpts;
   dispatchProductSelect.innerHTML = '<option value="">-- Choose Product --</option>' + pOpts;
+  if (transferProductSelect) {
+    transferProductSelect.innerHTML = '<option value="">-- Choose Product --</option>' + pOpts;
+  }
+}
+
+function getLocationBalance(productId, locationId) {
+  const row = cachedLocationBalances.find(
+    (b) => b.product_id === Number(productId) && b.location_id === Number(locationId)
+  );
+  return row ? row.current_stock : 0;
 }
 
 function renderInventory() {
@@ -492,7 +513,7 @@ function renderInventory() {
 
   // Render Rows
   if (filtered.length === 0) {
-    productTableBody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">No products matched the selected filters.</td></tr>`;
+    productTableBody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">No products matched the selected filters.</td></tr>`;
     return;
   }
 
@@ -502,19 +523,28 @@ function renderInventory() {
         ? `<span class="badge badge-warning">LOW STOCK</span>`
         : `<span class="badge badge-success">IN STOCK</span>`;
 
+      const pLocs = cachedLocationBalances.filter((b) => b.product_id === p.id && b.current_stock > 0);
+      const locHtml = pLocs.length > 0
+        ? `<div class="loc-badges-wrap">${pLocs
+            .map((b) => `<span class="badge badge-secondary" title="${escapeHtml(b.location_name)}">${escapeHtml(b.location_code)}: <strong>${b.current_stock}</strong></span>`)
+            .join("")}</div>`
+        : `<span class="text-muted"><small>0 in warehouses</small></span>`;
+
       return `
         <tr>
           <td><code class="sku-code">${escapeHtml(p.sku)}</code></td>
           <td><strong>${escapeHtml(p.name)}</strong></td>
           <td><span class="badge badge-secondary">${escapeHtml(p.category_name || "General")}</span></td>
+          <td>${locHtml}</td>
           <td class="text-right">$${p.unit_price.toFixed(2)}</td>
           <td class="text-right"><strong>${p.current_stock.toLocaleString()}</strong></td>
           <td class="text-right text-muted">$${(p.total_valuation || p.current_stock * p.unit_price).toFixed(2)}</td>
           <td class="text-center text-muted">${p.reorder_threshold}</td>
           <td class="text-center">${statusBadge}</td>
           <td class="text-right">
-            <button type="button" class="btn btn-xs btn-quick-recv" data-product-id="${p.id}">+ Receive</button>
-            <button type="button" class="btn btn-xs btn-quick-disp" data-product-id="${p.id}">- Issue</button>
+            <button type="button" class="btn btn-xs btn-quick-recv" data-product-id="${p.id}">+ IN</button>
+            <button type="button" class="btn btn-xs btn-quick-disp" data-product-id="${p.id}">- OUT</button>
+            <button type="button" class="btn btn-xs btn-quick-xfer" data-product-id="${p.id}">&harr; Transfer</button>
           </td>
         </tr>
       `;
@@ -531,12 +561,29 @@ window.quickPrepareReceive = function (productId) {
 window.quickPrepareDispatch = function (productId) {
   switchTab(tabOperations);
   dispatchProductSelect.value = productId;
+  const firstLoc = cachedLocationBalances.find((b) => b.product_id === Number(productId) && b.current_stock > 0);
+  if (firstLoc) {
+    dispatchLocationSelect.value = firstLoc.location_id;
+  }
   updateDispatchBalance();
   dispatchQty.focus();
 };
 
+window.quickPrepareTransfer = function (productId) {
+  switchTab(tabOperations);
+  if (transferProductSelect) {
+    transferProductSelect.value = productId;
+    const firstLoc = cachedLocationBalances.find((b) => b.product_id === Number(productId) && b.current_stock > 0);
+    if (firstLoc && transferFromLocationSelect) {
+      transferFromLocationSelect.value = firstLoc.location_id;
+    }
+    updateTransferBalance();
+    if (transferQty) transferQty.focus();
+  }
+};
+
 // ----------------------------------------------------------------------------
-// Tab 2: Stock Operations (Receive & Dispatch)
+// Tab 2: Stock Operations (Receive, Dispatch & Warehouse Transfer)
 // ----------------------------------------------------------------------------
 async function loadOperationsData() {
   await Promise.allSettled([
@@ -555,12 +602,15 @@ async function loadMovements() {
 
     movementTableBody.innerHTML = movements
       .map((m) => {
+        const isTransfer = (m.note || "").includes("Transfer ") || (m.reference_doc || "").startsWith("XFER-");
         const typeBadge =
           m.type === "IN"
-            ? `<span class="badge badge-success">INWARD</span>`
-            : `<span class="badge badge-warning">OUTWARD</span>`;
+            ? `<span class="badge badge-success">${isTransfer ? "XFER IN" : "INWARD"}</span>`
+            : `<span class="badge badge-warning">${isTransfer ? "XFER OUT" : "OUTWARD"}</span>`;
 
-        const partnerOrDoc = m.type === "IN" ? m.supplier_name : "Customer Dispatch";
+        const partnerOrDoc = isTransfer
+          ? "Warehouse Transfer"
+          : (m.type === "IN" ? m.supplier_name : "Customer Dispatch");
 
         return `
           <tr>
@@ -586,17 +636,47 @@ async function loadMovements() {
 
 function updateDispatchBalance() {
   const prodId = Number(dispatchProductSelect.value);
+  const locId = Number(dispatchLocationSelect.value);
   const prod = cachedProducts.find((p) => p.id === prodId);
-  if (prod) {
-    dispatchBalanceSpan.textContent = prod.current_stock.toLocaleString();
-    dispatchQty.max = prod.current_stock;
-  } else {
+  if (!prod) {
     dispatchBalanceSpan.textContent = "-";
     dispatchQty.removeAttribute("max");
+    return;
+  }
+  if (locId) {
+    const locBal = getLocationBalance(prodId, locId);
+    dispatchBalanceSpan.textContent = locBal.toLocaleString();
+    dispatchQty.max = locBal;
+  } else {
+    dispatchBalanceSpan.textContent = `${prod.current_stock.toLocaleString()} (total)`;
+    dispatchQty.max = prod.current_stock;
+  }
+}
+
+function updateTransferBalance() {
+  if (!transferProductSelect || !transferFromLocationSelect || !transferBalanceSpan) return;
+  const prodId = Number(transferProductSelect.value);
+  const fromLocId = Number(transferFromLocationSelect.value);
+  const prod = cachedProducts.find((p) => p.id === prodId);
+  if (!prod) {
+    transferBalanceSpan.textContent = "-";
+    if (transferQty) transferQty.removeAttribute("max");
+    return;
+  }
+  if (fromLocId) {
+    const locBal = getLocationBalance(prodId, fromLocId);
+    transferBalanceSpan.textContent = locBal.toLocaleString();
+    if (transferQty) transferQty.max = locBal;
+  } else {
+    transferBalanceSpan.textContent = `${prod.current_stock.toLocaleString()} (total)`;
+    if (transferQty) transferQty.max = prod.current_stock;
   }
 }
 
 dispatchProductSelect.addEventListener("change", updateDispatchBalance);
+dispatchLocationSelect.addEventListener("change", updateDispatchBalance);
+if (transferProductSelect) transferProductSelect.addEventListener("change", updateTransferBalance);
+if (transferFromLocationSelect) transferFromLocationSelect.addEventListener("change", updateTransferBalance);
 
 // Handle Receive Stock (IN)
 formReceiveStock.addEventListener("submit", async (e) => {
@@ -647,9 +727,9 @@ formDispatchStock.addEventListener("submit", async (e) => {
   const refDoc = dispatchRefDoc.value.trim() || null;
   const note = dispatchNote.value.trim() || "Standard stock issue/dispatch";
 
-  const prod = cachedProducts.find((p) => p.id === prodId);
-  if (prod && qty > prod.current_stock) {
-    showNotice(`Cannot dispatch ${qty} units! Only ${prod.current_stock} available.`, "error");
+  const locBal = getLocationBalance(prodId, locId);
+  if (qty > locBal) {
+    showNotice(`Cannot dispatch ${qty} units from selected location! Only ${locBal} available there.`, "error");
     return;
   }
 
@@ -674,6 +754,60 @@ formDispatchStock.addEventListener("submit", async (e) => {
     showNotice(err.message, "error");
   }
 });
+
+// Handle Warehouse Transfer (LOC -> LOC)
+if (formTransferStock) {
+  formTransferStock.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const prodId = Number(transferProductSelect.value);
+    const fromLocId = Number(transferFromLocationSelect.value);
+    const toLocId = Number(transferToLocationSelect.value);
+    const qty = Number(transferQty.value);
+
+    if (!fromLocId || !toLocId) {
+      showNotice("Please select both source and destination warehouses.", "error");
+      return;
+    }
+    if (fromLocId === toLocId) {
+      showNotice("Source and destination warehouses must be different.", "error");
+      return;
+    }
+    if (!Number.isInteger(qty) || qty < 1 || qty > 1000000) {
+      showNotice("Transfer quantity must be an integer between 1 and 1,000,000.", "error");
+      return;
+    }
+
+    const srcBal = getLocationBalance(prodId, fromLocId);
+    if (qty > srcBal) {
+      showNotice(`Insufficient stock at source location! Only ${srcBal} units available.`, "error");
+      return;
+    }
+
+    const refDoc = transferRefDoc.value.trim() || null;
+    const note = transferNote.value.trim() || "Inter-warehouse stock transfer";
+
+    try {
+      const res = await apiCall("/movements/transfer", {
+        method: "POST",
+        body: JSON.stringify({
+          product_id: prodId,
+          from_location_id: fromLocId,
+          to_location_id: toLocId,
+          qty: qty,
+          reference_doc: refDoc,
+          note: note,
+        }),
+      });
+      showNotice(res.message || "Warehouse transfer completed!", "success");
+      formTransferStock.reset();
+      transferBalanceSpan.textContent = "-";
+      await loadOperationsData();
+      checkAuditHealth();
+    } catch (err) {
+      showNotice(err.message, "error");
+    }
+  });
+}
 
 // ----------------------------------------------------------------------------
 // Tab 3: Audit Ledger & Tamper Demo
@@ -1093,177 +1227,6 @@ function renderGeneratedSvgErDiagram(schemaData) {
   `;
 }
 
-// Renders ALL 7 physical tables and ALL 3 relational views simultaneously on the dedicated Entire DB page
-let currentFullDbFilter = "ALL";
-
-async function loadFullDbPage(forceRefresh = false) {
-  const dumpBody = document.getElementById("fullDbDumpBody");
-  if (!dumpBody) return;
-  try {
-    if (!cachedFullSchema || forceRefresh) {
-      dumpBody.innerHTML = `<div class="bento-box span-12 text-center text-muted" style="padding: 32px;">Loading complete SQLite database schema &amp; tables...</div>`;
-      cachedFullSchema = await apiCall("/debug/full-schema?limit=50");
-    }
-    renderFullDatabaseDump(cachedFullSchema, currentFullDbFilter);
-  } catch (err) {
-    dumpBody.innerHTML = `<div class="notice notice-error">${escapeHtml(err.message)}</div>`;
-  }
-}
-
-function renderFullDatabaseDump(schemaData, filterType = "ALL") {
-  const dumpBody = document.getElementById("fullDbDumpBody");
-  if (!dumpBody || !schemaData) return;
-
-  let allObjects = [
-    ...(schemaData.tables || []),
-    ...(schemaData.views || []),
-  ];
-
-  if (filterType === "TABLE") {
-    allObjects = allObjects.filter((o) => o.object_type === "TABLE");
-  } else if (filterType === "VIEW") {
-    allObjects = allObjects.filter((o) => o.object_type === "VIEW");
-  }
-
-  dumpBody.innerHTML = allObjects
-    .map((obj) => {
-      const fkMap = {};
-      (obj.foreign_keys || []).forEach((fk) => {
-        fkMap[fk.column] = fk;
-      });
-
-      const cols = obj.columns || [];
-      const rows = obj.rows || [];
-
-      const colRowsHtml = cols
-        .map((c) => {
-          let constraintBadge = "-";
-          if (c.is_pk) {
-            constraintBadge = `<span class="badge badge-success">PRIMARY KEY</span>`;
-          } else if (fkMap[c.name]) {
-            const fk = fkMap[c.name];
-            constraintBadge = `<span class="badge badge-warning">FK &rarr; ${escapeHtml(fk.references_table)}(${escapeHtml(fk.references_column)}) [${escapeHtml(fk.on_delete)}]</span>`;
-          }
-          return `
-            <tr>
-              <td>${c.cid}</td>
-              <td><strong><code>${escapeHtml(c.name)}</code></strong></td>
-              <td><span class="badge badge-secondary">${escapeHtml(c.type || "ANY")}</span></td>
-              <td>${c.notnull ? "NOT NULL" : "NULLABLE"}</td>
-              <td><code>${c.default_value !== null ? escapeHtml(String(c.default_value)) : "-"}</code></td>
-              <td>${constraintBadge}</td>
-            </tr>
-          `;
-        })
-        .join("");
-
-      const rawHeadHtml = cols.length > 0
-        ? `<tr>${cols.map((c) => `<th>${escapeHtml(c.name)}</th>`).join("")}</tr>`
-        : "";
-
-      const rawBodyHtml = rows.length === 0
-        ? `<tr><td colspan="${Math.max(1, cols.length)}" class="text-center text-muted">No rows in ${escapeHtml(obj.name)}.</td></tr>`
-        : rows
-            .map((r) => {
-              const cells = cols
-                .map((c) => {
-                  const val = r[c.name];
-                  if (val === null || val === undefined) {
-                    return `<td class="text-muted"><em>NULL</em></td>`;
-                  }
-                  const strVal = String(val);
-                  if (strVal.length > 38) {
-                    return `<td title="${escapeHtml(strVal)}"><code>${escapeHtml(strVal.substring(0, 35))}...</code></td>`;
-                  }
-                  return `<td>${escapeHtml(strVal)}</td>`;
-                })
-                .join("");
-              return `<tr>${cells}</tr>`;
-            })
-            .join("");
-
-      return `
-        <div class="dump-object-card" id="db-card-${escapeHtml(obj.name)}">
-          <div class="dump-object-header">
-            <h4>[${escapeHtml(obj.object_type)}] <code>${escapeHtml(obj.name)}</code></h4>
-            <span class="badge ${obj.object_type === "TABLE" ? "badge-primary" : "badge-secondary"}">${obj.total_rows} Total Rows</span>
-          </div>
-
-          <div class="explorer-split-grid">
-            <div class="sub-bento">
-              <span class="sub-bento-label">Schema Structure &amp; Foreign Keys (PRAGMA table_info)</span>
-              <div class="table-responsive">
-                <table class="data-table compact-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Column</th>
-                      <th>Type</th>
-                      <th>Null</th>
-                      <th>Default</th>
-                      <th>Constraint / Reference</th>
-                    </tr>
-                  </thead>
-                  <tbody>${colRowsHtml}</tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="sub-bento">
-              <span class="sub-bento-label">Compiled SQLite DDL (${escapeHtml(obj.object_type)} ${escapeHtml(obj.name)})</span>
-              <pre class="code-block"><code>${escapeHtml(obj.ddl_sql || "")}</code></pre>
-            </div>
-          </div>
-
-          <div class="sub-bento">
-            <span class="sub-bento-label">Actual Database Rows: <code>SELECT * FROM ${escapeHtml(obj.name)} LIMIT 50;</code></span>
-            <div class="table-responsive" style="max-height: 260px; overflow-y: auto;">
-              <table class="data-table compact-table">
-                <thead>${rawHeadHtml}</thead>
-                <tbody>${rawBodyHtml}</tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-window.scrollToDbObject = function (objName) {
-  const card = document.getElementById(`db-card-${objName}`);
-  if (card) {
-    card.scrollIntoView({ behavior: "smooth", block: "start" });
-  } else {
-    // If filtered out, reset filter to ALL first
-    currentFullDbFilter = "ALL";
-    document.querySelectorAll(".btn-fulldb-filter").forEach((b) => {
-      b.classList.toggle("active", b.getAttribute("data-filter") === "ALL");
-    });
-    if (cachedFullSchema) {
-      renderFullDatabaseDump(cachedFullSchema, "ALL");
-      const target = document.getElementById(`db-card-${objName}`);
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }
-};
-
-document.querySelectorAll(".btn-fulldb-filter").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    currentFullDbFilter = btn.getAttribute("data-filter") || "ALL";
-    document.querySelectorAll(".btn-fulldb-filter").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    if (cachedFullSchema) {
-      renderFullDatabaseDump(cachedFullSchema, currentFullDbFilter);
-    }
-  });
-});
-
-const btnRefreshFullDb = document.getElementById("btnRefreshFullDb");
-if (btnRefreshFullDb) {
-  btnRefreshFullDb.addEventListener("click", () => loadFullDbPage(true));
-}
-
 // Toggle between Generated SVG ER Diagram and Attribute Card View
 const btnToggleErMode = document.getElementById("btnToggleErMode");
 if (btnToggleErMode) {
@@ -1281,15 +1244,6 @@ if (btnToggleErMode) {
       cardBox.classList.remove("hidden");
       btnToggleErMode.textContent = "Switch to Generated SVG Diagram";
     }
-  });
-}
-
-// Button inside ER Diagram tab switches directly to the dedicated Entire DB page
-const btnShowAllTables = document.getElementById("btnShowAllTables");
-if (btnShowAllTables) {
-  btnShowAllTables.addEventListener("click", () => {
-    switchTab(tabFullDb);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   });
 }
 
@@ -1492,10 +1446,6 @@ formAddProduct.addEventListener("submit", async (e) => {
   }
 });
 
-btnOpenHelp.addEventListener("click", () => vivaGuideModal.classList.remove("hidden"));
-btnCloseVivaGuide.addEventListener("click", () => vivaGuideModal.classList.add("hidden"));
-btnDoneVivaGuide.addEventListener("click", () => vivaGuideModal.classList.add("hidden"));
-
 // ----------------------------------------------------------------------------
 // Navigation and Filter Listeners
 // ----------------------------------------------------------------------------
@@ -1503,9 +1453,6 @@ btnNavInventory.addEventListener("click", () => switchTab(tabInventory));
 btnNavOperations.addEventListener("click", () => switchTab(tabOperations));
 btnNavAudit.addEventListener("click", () => switchTab(tabAudit));
 btnNavDiagnostics.addEventListener("click", () => switchTab(tabDiagnostics));
-if (btnNavFullDb) {
-  btnNavFullDb.addEventListener("click", () => switchTab(tabFullDb));
-}
 btnBrand.addEventListener("click", () => switchTab(tabInventory));
 
 productSearchInput.addEventListener("input", renderInventory);
@@ -1535,12 +1482,6 @@ btnQuickStaff.addEventListener("click", () => {
 
 // Delegated click listener for CSP-compliant data-action attributes
 document.addEventListener("click", (e) => {
-  const scrollBtn = e.target.closest("[data-scroll-target]");
-  if (scrollBtn) {
-    const target = scrollBtn.getAttribute("data-scroll-target");
-    if (window.scrollToDbObject) window.scrollToDbObject(target);
-    return;
-  }
   const erEntity = e.target.closest("[data-er-table]");
   if (erEntity) {
     const tbl = erEntity.getAttribute("data-er-table");
@@ -1563,6 +1504,12 @@ document.addEventListener("click", (e) => {
   if (dispBtn) {
     const pId = Number(dispBtn.getAttribute("data-product-id"));
     if (window.quickPrepareDispatch) window.quickPrepareDispatch(pId);
+    return;
+  }
+  const xferBtn = e.target.closest(".btn-quick-xfer");
+  if (xferBtn) {
+    const pId = Number(xferBtn.getAttribute("data-product-id"));
+    if (window.quickPrepareTransfer) window.quickPrepareTransfer(pId);
     return;
   }
   const svgGroup = e.target.closest("[data-svg-table]");

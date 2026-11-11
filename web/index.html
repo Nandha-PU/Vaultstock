@@ -60,7 +60,6 @@
           <button type="button" id="btnNavOperations" class="nav-tab">Operations</button>
           <button type="button" id="btnNavAudit" class="nav-tab">Audit Chain</button>
           <button type="button" id="btnNavDiagnostics" class="nav-tab">ER Diagram &amp; Schema</button>
-          <button type="button" id="btnNavFullDb" class="nav-tab">Entire DB</button>
         </nav>
       </div>
 
@@ -69,7 +68,6 @@
           <span class="status-dot verified" id="chainStatusDot"></span>
           <span id="chainStatusText">Chain Verified</span>
         </div>
-        <button type="button" id="btnOpenHelp" class="btn btn-sm">Viva Guide</button>
         <button type="button" id="btnThemeToggle" class="btn btn-sm btn-theme-toggle">Dark</button>
         <span id="userBadge" class="user-label"></span>
         <button type="button" id="btnLogout" class="btn btn-sm">Sign Out</button>
@@ -147,8 +145,9 @@
                   <th>SKU</th>
                   <th>Product Name</th>
                   <th>Category</th>
+                  <th>Warehouse Stock</th>
                   <th class="text-right">Unit Price</th>
-                  <th class="text-right">Current Stock</th>
+                  <th class="text-right">Total Stock</th>
                   <th class="text-right">Total Value</th>
                   <th class="text-center">Reorder Point</th>
                   <th class="text-center">Status</th>
@@ -156,7 +155,7 @@
                 </tr>
               </thead>
               <tbody id="productTableBody">
-                <tr><td colspan="9" class="text-center text-muted">Loading inventory...</td></tr>
+                <tr><td colspan="10" class="text-center text-muted">Loading inventory...</td></tr>
               </tbody>
             </table>
           </div>
@@ -169,8 +168,8 @@
     <!-- ===================================================================== -->
     <section id="tabOperations" class="tab-pane hidden">
       <div class="bento-grid">
-        <!-- Left Bento Box: Stock IN -->
-        <div class="bento-box span-6">
+        <!-- Col 1: Stock IN -->
+        <div class="bento-box span-4">
           <div class="bento-header border-bottom">
             <div>
               <h3>Stock Receipt (IN)</h3>
@@ -217,12 +216,12 @@
           </form>
         </div>
 
-        <!-- Right Bento Box: Stock OUT -->
-        <div class="bento-box span-6">
+        <!-- Col 2: Stock OUT -->
+        <div class="bento-box span-4">
           <div class="bento-header border-bottom">
             <div>
               <h3>Stock Dispatch (OUT)</h3>
-              <span class="bento-caption">Issue inventory with trigger-enforced overdraft guard</span>
+              <span class="bento-caption">Issue inventory with overdraft guard</span>
             </div>
             <span class="badge badge-warning">OUTWARD</span>
           </div>
@@ -230,7 +229,7 @@
             <div class="field">
               <div class="label-row">
                 <label for="dispatchProductSelect">Product</label>
-                <span class="field-hint">Available: <strong id="dispatchBalanceSpan">-</strong> units</span>
+                <span class="field-hint">Available at Loc: <strong id="dispatchBalanceSpan">-</strong> units</span>
               </div>
               <select id="dispatchProductSelect" required class="input-control">
                 <option value="">Select product...</option>
@@ -257,6 +256,57 @@
               <input type="text" id="dispatchNote" class="input-control" placeholder="Customer fulfillment or internal requisition" maxlength="200">
             </div>
             <button type="submit" class="btn btn-secondary btn-full">Authorize Outward Issue</button>
+          </form>
+        </div>
+
+        <!-- Col 3: Warehouse Transfer (LOC -> LOC) -->
+        <div class="bento-box span-4">
+          <div class="bento-header border-bottom">
+            <div>
+              <h3>Warehouse Transfer</h3>
+              <span class="bento-caption">Atomic stock transfer between locations</span>
+            </div>
+            <span class="badge badge-secondary">LOC &rarr; LOC</span>
+          </div>
+          <form id="formTransferStock" class="bento-form">
+            <div class="field">
+              <div class="label-row">
+                <label for="transferProductSelect">Product</label>
+                <span class="field-hint">Source Balance: <strong id="transferBalanceSpan">-</strong> units</span>
+              </div>
+              <select id="transferProductSelect" required class="input-control">
+                <option value="">Select product...</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <div class="field flex-1">
+                <label for="transferFromLocationSelect">From Warehouse</label>
+                <select id="transferFromLocationSelect" required class="input-control">
+                  <option value="">Source...</option>
+                </select>
+              </div>
+              <div class="field flex-1">
+                <label for="transferToLocationSelect">To Warehouse</label>
+                <select id="transferToLocationSelect" required class="input-control">
+                  <option value="">Destination...</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field flex-1">
+                <label for="transferQty">Transfer Qty</label>
+                <input type="number" id="transferQty" class="input-control" min="1" max="1000000" placeholder="e.g. 10" required>
+              </div>
+              <div class="field flex-1">
+                <label for="transferRefDoc">Transfer Slip</label>
+                <input type="text" id="transferRefDoc" class="input-control" placeholder="e.g. XFER-2026-01" maxlength="60">
+              </div>
+            </div>
+            <div class="field">
+              <label for="transferNote">Transfer Note</label>
+              <input type="text" id="transferNote" class="input-control" placeholder="Warehouse rebalancing or retail restock" maxlength="200">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Execute Stock Transfer</button>
           </form>
         </div>
 
@@ -295,67 +345,137 @@
     </section>
 
     <!-- ===================================================================== -->
-    <!-- TAB 3: AUDIT LEDGER & TAMPER DEMO (BENTO GRID)                        -->
+    <!-- TAB 3: AUDIT LEDGER & DEFENSE FLOWCHART (STREAMLINED BENTO GRID)      -->
     <!-- ===================================================================== -->
     <section id="tabAudit" class="tab-pane hidden">
       <div class="bento-grid">
-        <!-- Left 5-Col Bento Tile: Integrity Status & Actions -->
-        <div class="bento-box span-5 audit-status-tile">
-          <div>
-            <span class="status-indicator-badge verified" id="auditHeroBadge">100% VERIFIED</span>
-            <h2 id="auditHeroTitle" class="audit-title">Cryptographic Chain Intact</h2>
-            <p id="auditHeroSubtitle" class="audit-desc">All blocks verified across sequential contiguity, hash linkage, HMAC-SHA256 signatures, relational reconciliation, and external anchor.</p>
+        <!-- Streamlined Full-Width Verification & Control Strip -->
+        <div class="bento-box span-12 audit-streamlined-bar">
+          <div class="audit-streamlined-top">
+            <div class="audit-streamlined-title-group">
+              <span class="status-indicator-badge verified" id="auditHeroBadge">100% VERIFIED</span>
+              <div>
+                <h2 id="auditHeroTitle" class="audit-title-inline">Cryptographic Chain Intact</h2>
+                <p id="auditHeroSubtitle" class="audit-desc-inline">All blocks verified across sequential contiguity, hash linkage, HMAC-SHA256 signatures, relational reconciliation, and external anchor.</p>
+              </div>
+            </div>
+            <div class="audit-streamlined-actions">
+              <button type="button" id="btnRunAuditVerify" class="btn btn-primary btn-sm">Verify Chain</button>
+              <button type="button" id="btnSimulateTamper" class="btn btn-danger btn-sm admin-only">Simulate Disk Tamper</button>
+              <button type="button" id="btnResetDatabase" class="btn btn-sm admin-only">Reset Baseline</button>
+            </div>
           </div>
-          <div class="audit-hero-actions">
-            <button type="button" id="btnRunAuditVerify" class="btn btn-primary btn-sm">Verify Chain</button>
-            <button type="button" id="btnSimulateTamper" class="btn btn-danger btn-sm admin-only">Simulate Disk Tamper</button>
-            <button type="button" id="btnResetDatabase" class="btn btn-sm admin-only">Reset Baseline</button>
+
+          <!-- Compact 5-Point Verification Strip -->
+          <div class="check-strip-compact">
+            <div class="check-pill" id="checkContiguity">
+              <span class="check-dot pass">OK</span>
+              <div><strong>01. Contiguity</strong> <small>1..N Sequence</small></div>
+            </div>
+            <div class="check-pill" id="checkLinkage">
+              <span class="check-dot pass">OK</span>
+              <div><strong>02. Linkage</strong> <small>prev_hash == row_hash</small></div>
+            </div>
+            <div class="check-pill" id="checkIntegrity">
+              <span class="check-dot pass">OK</span>
+              <div><strong>03. HMAC-SHA256</strong> <small>Keyed Signature</small></div>
+            </div>
+            <div class="check-pill" id="checkReconciliation">
+              <span class="check-dot pass">OK</span>
+              <div><strong>04. Reconciliation</strong> <small>Table == Audit JSON</small></div>
+            </div>
+            <div class="check-pill" id="checkAnchor">
+              <span class="check-dot pass">OK</span>
+              <div><strong>05. Head Anchor</strong> <small>audit_head.json</small></div>
+            </div>
           </div>
         </div>
 
-        <!-- Right 7-Col Bento Tile: 5-Point Verification Matrix -->
-        <div class="bento-box span-7">
+        <!-- Data Request & Defense-in-Depth Flowchart -->
+        <div class="bento-box span-12">
           <div class="bento-header border-bottom">
             <div>
-              <h3>5-Point Mathematical Verification Matrix</h3>
-              <span class="bento-caption">Real-time invariant invariants evaluated on every scan</span>
+              <h3>Data Request Flow &amp; Defense-in-Depth Architecture</h3>
+              <span class="bento-caption">End-to-end execution pipeline showing how every inventory request is validated, locked, constrained by SQLite triggers, and sealed into the HMAC ledger</span>
             </div>
+            <span class="badge badge-secondary">6-STAGE PIPELINE</span>
           </div>
-          <div class="check-grid">
-            <div class="check-item" id="checkContiguity">
-              <span class="check-dot pass">OK</span>
-              <div>
-                <strong>01. Contiguity (1..N)</strong>
-                <small>No deleted gaps or missing blocks</small>
+
+          <div class="defense-flowchart">
+            <!-- Stage 1 -->
+            <div class="flow-stage">
+              <div class="flow-stage-top">
+                <span class="flow-step-num">STAGE 01</span>
+                <span class="badge badge-secondary">API GATEWAY</span>
               </div>
+              <h4>Request &amp; RBAC Gate</h4>
+              <p>FastAPI verifies <code>HS256 JWT</code> session &amp; role (<code>admin</code> vs <code>staff</code>), while <code>Pydantic v2</code> sanitizes inputs and enforces strict bounds.</p>
+              <div class="flow-defense-tag">Blocks: Unauthenticated access, SQLi/XSS payloads, NaN/Inf overflow</div>
             </div>
-            <div class="check-item" id="checkLinkage">
-              <span class="check-dot pass">OK</span>
-              <div>
-                <strong>02. Hash Linkage</strong>
-                <small><code>prev_hash == prior row_hash</code></small>
+
+            <div class="flow-arrow" aria-hidden="true">&rarr;</div>
+
+            <!-- Stage 2 -->
+            <div class="flow-stage">
+              <div class="flow-stage-top">
+                <span class="flow-step-num">STAGE 02</span>
+                <span class="badge badge-secondary">CONCURRENCY</span>
               </div>
+              <h4>Immediate Write Lock</h4>
+              <p>SQLite runs in <code>WAL</code> journal mode and opens writes with <code>BEGIN IMMEDIATE</code> to serialize concurrent check-then-act operations.</p>
+              <div class="flow-defense-tag">Blocks: Lost-update race conditions &amp; concurrent double-spend dispatches</div>
             </div>
-            <div class="check-item" id="checkIntegrity">
-              <span class="check-dot pass">OK</span>
-              <div>
-                <strong>03. HMAC-SHA256 Digest</strong>
-                <small>Keyed signature verification</small>
+
+            <div class="flow-arrow" aria-hidden="true">&rarr;</div>
+
+            <!-- Stage 3 -->
+            <div class="flow-stage">
+              <div class="flow-stage-top">
+                <span class="flow-step-num">STAGE 03</span>
+                <span class="badge badge-warning">3NF SCHEMA</span>
               </div>
+              <h4>Relational Constraints</h4>
+              <p>Enforces <code>PRAGMA foreign_keys = ON</code> with <code>ON DELETE RESTRICT</code> across categories, suppliers, locations, and products.</p>
+              <div class="flow-defense-tag">Blocks: Orphaned movements, invalid foreign keys, &amp; negative quantities</div>
             </div>
-            <div class="check-item" id="checkReconciliation">
-              <span class="check-dot pass">OK</span>
-              <div>
-                <strong>04. Row Reconciliation</strong>
-                <small>Tables match JSON audit snapshots</small>
+
+            <div class="flow-arrow" aria-hidden="true">&rarr;</div>
+
+            <!-- Stage 4 -->
+            <div class="flow-stage">
+              <div class="flow-stage-top">
+                <span class="flow-step-num">STAGE 04</span>
+                <span class="badge badge-warning">KERNEL TRIGGERS</span>
               </div>
+              <h4>Storage-Layer Guards</h4>
+              <p><code>BEFORE INSERT</code> checks <code>SUM(IN)-SUM(OUT) &gt;= qty</code>; <code>BEFORE UPDATE/DELETE</code> triggers abort edits on <code>movements</code> &amp; <code>audit_log</code>.</p>
+              <div class="flow-defense-tag">Blocks: Stock overdrafts (global &amp; per-warehouse) and historical record erasure</div>
             </div>
-            <div class="check-item span-full" id="checkAnchor">
-              <span class="check-dot pass">OK</span>
-              <div>
-                <strong>05. Out-of-Band Head Anchor</strong>
-                <small>Chain head matches external <code>data/audit_head.json</code> checkpoint (defeats tail truncation)</small>
+
+            <div class="flow-arrow" aria-hidden="true">&rarr;</div>
+
+            <!-- Stage 5 -->
+            <div class="flow-stage">
+              <div class="flow-stage-top">
+                <span class="flow-step-num">STAGE 05</span>
+                <span class="badge badge-success">CRYPTO LEDGER</span>
               </div>
+              <h4>HMAC Chain &amp; Anchor</h4>
+              <p>Signs canonical JSON payload + <code>prev_hash</code> with secret <code>HMAC-SHA256</code> key and syncs head hash to <code>data/audit_head.json</code>.</p>
+              <div class="flow-defense-tag">Blocks: Direct disk tampering, forged SHA-256 hashes, &amp; tail truncation</div>
+            </div>
+
+            <div class="flow-arrow" aria-hidden="true">&rarr;</div>
+
+            <!-- Stage 6 -->
+            <div class="flow-stage">
+              <div class="flow-stage-top">
+                <span class="flow-step-num">STAGE 06</span>
+                <span class="badge badge-success">READ VIEWS</span>
+              </div>
+              <h4>Dynamic 3NF Views</h4>
+              <p><code>v_inventory_summary</code> &amp; <code>v_location_inventory</code> derive live stock balances on the fly with zero mutable counter columns.</p>
+              <div class="flow-defense-tag">Guarantees: 100% mathematical reconciliation between ledger and stock</div>
             </div>
           </div>
         </div>
@@ -427,7 +547,6 @@
             </div>
             <div class="bento-toolbar">
               <button type="button" id="btnToggleErMode" class="btn btn-xs">Switch to 3NF Card Map</button>
-              <button type="button" id="btnShowAllTables" class="btn btn-primary btn-xs">Open Entire DB Page &rarr;</button>
             </div>
           </div>
 
@@ -582,6 +701,7 @@
             <button type="button" class="btn btn-xs btn-db-table" data-table="audit_log">audit_log</button>
             <button type="button" class="btn btn-xs btn-db-table" data-table="users">users</button>
             <button type="button" class="btn btn-xs btn-db-table" data-table="v_inventory_summary">v_inventory_summary (VIEW)</button>
+            <button type="button" class="btn btn-xs btn-db-table" data-table="v_location_inventory">v_location_inventory (VIEW)</button>
             <button type="button" class="btn btn-xs btn-db-table" data-table="v_low_stock_alerts">v_low_stock_alerts (VIEW)</button>
             <button type="button" class="btn btn-xs btn-db-table" data-table="v_ledger_history">v_ledger_history (VIEW)</button>
           </div>
@@ -682,45 +802,6 @@
       </div>
     </section>
 
-    <!-- ===================================================================== -->
-    <!-- TAB 5: ENTIRE DATABASE PAGE (ALL TABLES, VIEWS, SCHEMAS & RAW ROWS)   -->
-    <!-- ===================================================================== -->
-    <section id="tabFullDb" class="tab-pane hidden">
-      <div class="bento-grid">
-        <div class="bento-box span-12">
-          <div class="bento-header border-bottom">
-            <div>
-              <h3>Entire Relational Database (All 7 Physical Tables &amp; 3 Compiled Views)</h3>
-              <span class="bento-caption">Complete live inspection of every SQLite table and view: column definitions, PK/FK constraints, compiled DDL, and actual stored rows</span>
-            </div>
-            <div class="bento-toolbar">
-              <button type="button" class="btn btn-xs btn-fulldb-filter active" data-filter="ALL">All Objects (10)</button>
-              <button type="button" class="btn btn-xs btn-fulldb-filter" data-filter="TABLE">Physical Tables (7)</button>
-              <button type="button" class="btn btn-xs btn-fulldb-filter" data-filter="VIEW">Relational Views (3)</button>
-              <button type="button" id="btnRefreshFullDb" class="btn btn-primary btn-xs">Refresh DB</button>
-            </div>
-          </div>
-
-          <div class="selector-strip" style="margin-bottom: 0;">
-            <span class="tile-eyebrow" style="align-self: center; margin-right: 6px;">Jump to:</span>
-            <button type="button" class="btn btn-xs" data-scroll-target="categories">categories</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="suppliers">suppliers</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="locations">locations</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="products">products</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="movements">movements</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="audit_log">audit_log</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="users">users</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="v_inventory_summary">v_inventory_summary</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="v_low_stock_alerts">v_low_stock_alerts</button>
-            <button type="button" class="btn btn-xs" data-scroll-target="v_ledger_history">v_ledger_history</button>
-          </div>
-        </div>
-
-        <!-- Dynamic Container for All Table & View Bento Cards -->
-        <div id="fullDbDumpBody" class="span-12 full-dump-grid"></div>
-      </div>
-    </section>
-
   </main>
 
   <!-- ======================================================================= -->
@@ -764,54 +845,6 @@
           <button type="submit" class="btn btn-primary btn-sm">Create &amp; Seal Audit Block</button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- Viva Presentation & Team Defense Guide Modal -->
-  <div id="vivaGuideModal" class="modal-overlay hidden">
-    <div class="modal-box modal-lg bento-box">
-      <div class="modal-header">
-        <h3>Project Architecture &amp; Viva Defense Guide</h3>
-        <button type="button" class="modal-close" id="btnCloseVivaGuide">&times;</button>
-      </div>
-      <div class="modal-body viva-guide-body">
-        <h4>01 / The 30-Second Elevator Pitch</h4>
-        <blockquote class="viva-quote">
-          "Traditional inventory systems use mutable counters like <code>UPDATE products SET stock = stock - 5</code>, which causes race conditions and allows insiders to cover up theft. <strong>VaultStock</strong> solves this with an <strong>Immutable Append-Only Ledger</strong> where stock is dynamically derived via <code>SUM(IN) - SUM(OUT)</code>, and every transaction is chained into a <strong>tamper-evident HMAC audit log</strong> just like Git commits."
-        </blockquote>
-
-        <h4>02 / Explaining the Security (The Git Analogy)</h4>
-        <p class="text-muted">Explain the audit log like <strong>Git commits</strong>: Each transaction stores the hash of the preceding transaction (<code>prev_hash</code>). Editing row #1 on disk changes its hash, breaking row #2's <code>prev_hash</code> link, which our 5-point verifier flags immediately.</p>
-
-        <h4>03 / Team Speaking Roles</h4>
-        <div class="viva-roles-grid">
-          <div class="viva-role-card">
-            <strong>Speaker 1: 3NF Schema &amp; Views</strong>
-            <ul>
-              <li>Explains normalized tables: <code>categories</code>, <code>suppliers</code>, <code>locations</code>, <code>products</code>, <code>movements</code>.</li>
-              <li>Explains why stock is derived from <code>v_inventory_summary</code> instead of a mutable column.</li>
-            </ul>
-          </div>
-          <div class="viva-role-card">
-            <strong>Speaker 2: Triggers &amp; Constraints</strong>
-            <ul>
-              <li>Explains the <code>prevent_negative_stock</code> trigger on outward dispatches.</li>
-              <li>Explains append-only triggers blocking <code>UPDATE</code> and <code>DELETE</code>.</li>
-            </ul>
-          </div>
-          <div class="viva-role-card">
-            <strong>Speaker 3: Audit &amp; Live Tamper Demo</strong>
-            <ul>
-              <li>Opens Audit Chain tab and clicks <strong>Simulate Disk Tamper</strong>.</li>
-              <li>Clicks <strong>Verify Chain</strong> to trigger the red alert detection.</li>
-              <li>Clicks <strong>Reset Baseline</strong> to restore clean state.</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-primary btn-sm" id="btnDoneVivaGuide">Close Guide</button>
-      </div>
     </div>
   </div>
 

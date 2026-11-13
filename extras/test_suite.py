@@ -425,6 +425,25 @@ record(
     f"WH-A1: {p1_loc1}, RETAIL-1: {p1_loc3}, Total: {p1_global}",
 )
 
+# F6: Interactive SQL Shell Execution & Trigger Bypass Tamper Detection
+from api.db import execute_interactive_sql
+r_blocked = execute_interactive_sql("UPDATE products SET unit_price = 0.01 WHERE id = 1;", bypass_triggers=False)
+r_bypassed = execute_interactive_sql("UPDATE products SET unit_price = 0.01 WHERE id = 1;", bypass_triggers=True)
+f6_passed = (
+    r_blocked["status"] == "INTERCEPTED"
+    and r_bypassed["status"] == "SUCCESS"
+    and r_bypassed["rows_affected"] == 1
+    and r_bypassed["audit_status"]["verified"] is False
+    and r_bypassed["audit_status"]["checks"]["reconciliation"] is False
+    and r_bypassed["triggers_status"]["triggers_enabled"] is True
+)
+record(
+    "F6",
+    "Interactive SQL console enforces triggers by default and catches bypassed DB edits via Reconciliation",
+    f6_passed,
+    r_bypassed["audit_status"]["reason"],
+)
+
 print("\n" + "=" * 70)
 total_tests = len(results)
 total_passed = sum(1 for _, _, passed, _ in results)

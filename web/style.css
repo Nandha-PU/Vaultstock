@@ -153,7 +153,7 @@ code, pre, .sku-code, .hash-code {
 
 .bento-grid {
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--gap-bento);
   align-items: stretch;
 }
@@ -220,6 +220,8 @@ code, pre, .sku-code, .hash-code {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Metric Bento Tiles */
@@ -494,7 +496,14 @@ select {
   border: 1px solid var(--border);
   border-radius: var(--radius-ctrl);
   outline: none;
+  max-width: 100%;
   transition: border-color 0.12s ease;
+}
+
+select {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .input-control:focus,
@@ -504,7 +513,8 @@ select:focus {
 }
 
 .input-search {
-  min-width: 210px;
+  min-width: min(210px, 100%);
+  max-width: 100%;
 }
 
 /* Badges */
@@ -631,12 +641,22 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  min-width: 0;
+}
+
+.field .input-control,
+.field input,
+.field select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .field label {
@@ -649,6 +669,8 @@ select:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .field-hint {
@@ -660,10 +682,18 @@ select:focus {
 .field-row {
   display: flex;
   gap: 12px;
+  min-width: 0;
 }
 
 .field.flex-1 {
-  flex: 1;
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .field-row {
+    flex-direction: column;
+  }
 }
 
 /* ==========================================================================
@@ -993,6 +1023,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 .modal-box {

@@ -579,6 +579,7 @@ def get_db_debug_info() -> dict:
             },
             "row_counts": counts,
             "triggers": triggers,
+            "triggers_status": get_triggers_status(conn),
             "views": views,
         }
     finally:
@@ -838,3 +839,236 @@ def run_sql_probe(probe_type: str) -> dict:
                 }
     finally:
         conn.close()
+
+
+PROTECTED_TRIGGER_NAMES = (
+    "prevent_negative_stock",
+    "prevent_movement_update",
+    "prevent_movement_delete",
+    "prevent_product_delete",
+    "prevent_product_update",
+    "prevent_audit_update",
+    "prevent_audit_delete",
+)
+
+
+def get_triggers_status(conn: sqlite3.Connection | None = None) -> dict:
+    """Returns whether the 7 storage-layer immutability and overdraft triggers are currently active."""
+    own_conn = False
+    if conn is None:
+        conn = get_connection()
+        own_conn = True
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name;"
+        )
+        active = [r["name"] for r in cur.fetchall()]
+        active_protected = [t for t in PROTECTED_TRIGGER_NAMES if t in active]
+        return {
+            "triggers_enabled": len(active_protected) == len(PROTECTED_TRIGGER_NAMES),
+            "active_count": len(active_protected),
+            "expected_count": len(PROTECTED_TRIGGER_NAMES),
+            "active_triggers": active,
+        }
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def set_storage_triggers(enabled: bool, conn: sqlite3.Connection | None = None) -> dict:
+    """
+    Enables or disables the 7 storage-layer immutability/overdraft triggers.
+    Allows faculty/evaluators to test both trigger-enforced rejection AND direct
+    DBA/disk-level modifications to verify the 5-point cryptographic audit chain.
+    """
+    own_conn = False
+    if conn is None:
+        conn = get_connection()
+        own_conn = True
+    try:
+        if enabled:
+            conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+        else:
+            drop_script = "\n".join(
+                f"DROP TRIGGER IF EXISTS {t};" for t in PROTECTED_TRIGGER_NAMES
+            )
+            conn.executescript(drop_script)
+        return get_triggers_status(conn)
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def _split_sql_statements(sql: str) -> list[str]:
+    """Splits a SQL string into individual executable statements using sqlite3.complete_statement."""
+    raw = (sql or "").strip()
+    if not raw:
+        return []
+    parts = raw.split(";")
+    statements: list[str] = []
+    buf = ""
+    for idx, part in enumerate(parts):
+        piece = part if idx == len(parts) - 1 else part + ";"
+        buf = f"{buf}{piece}" if buf else piece
+        if sqlite3.complete_statement(buf):
+            non_comment = "\n".join(
+                line for line in buf.splitlines() if not line.strip().startswith("--")
+            ).strip()
+            if non_comment and non_comment != ";":
+                statements.append(buf.strip())
+            buf = ""
+    if buf.strip():
+        non_comment = "\n".join(
+            line for line in buf.splitlines() if not line.strip().startswith("--")
+        ).strip()
+        if non_comment and non_comment != ";":
+            statements.append(buf.strip())
+    return statements
+
+
+def execute_interactive_sql(
+    sql: str,
+    bypass_triggers: bool = False,
+    max_rows: int = 200,
+) -> dict:
+    """
+    Executes arbitrary SQL statements against the live SQLite backend database for
+    interactive faculty evaluation, returning tabular results, affected row counts,
+    trigger interception telemetry, and post-execution 5-point audit verification status.
+    """
+    import time as _time
+
+    statements = _split_sql_statements(sql)
+    if not statements:
+        return {
+            "status": "ERROR",
+            "sql": sql,
+            "is_query": False,
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "rows_affected": 0,
+            "execution_time_ms": 0.0,
+            "bypass_triggers": bypass_triggers,
+            "message": "No SQL statement provided.",
+            "triggers_status": get_triggers_status(),
+            "audit_status": verify_audit_chain(),
+        }
+
+    conn = get_connection()
+    t0 = _time.perf_counter()
+    was_enabled = get_triggers_status(conn)["triggers_enabled"]
+    explicitly_changed_triggers = any(
+        " TRIGGER " in s.upper() for s in statements
+    )
+
+    try:
+        if bypass_triggers and was_enabled:
+            set_storage_triggers(False, conn)
+
+        cur = conn.cursor()
+        last_headers: list[str] = []
+        last_rows: list[dict] = []
+        is_query = False
+        total_affected = 0
+        lastrowid = None
+
+        for stmt in statements:
+            cur.execute(stmt)
+            if cur.description is not None:
+                is_query = True
+                raw_headers = [d[0] for d in cur.description]
+                # Deduplicate column headers if a JOIN produces identical column names
+                headers: list[str] = []
+                seen: dict[str, int] = {}
+                for h in raw_headers:
+                    if h in seen:
+                        seen[h] += 1
+                        headers.append(f"{h}_{seen[h]}")
+                    else:
+                        seen[h] = 0
+                        headers.append(h)
+                last_headers = headers
+                fetched = cur.fetchmany(max_rows)
+                rows_list: list[dict] = []
+                for r in fetched:
+                    row_dict = {}
+                    for idx, col_key in enumerate(headers):
+                        val = r[idx]
+                        if col_key == "password_hash" and val:
+                            val = "pbkdf2_sha256$150000$***REDACTED***"
+                        row_dict[col_key] = val
+                    rows_list.append(row_dict)
+                last_rows = rows_list
+            else:
+                if cur.rowcount is not None and cur.rowcount > 0:
+                    total_affected += cur.rowcount
+                if cur.lastrowid:
+                    lastrowid = cur.lastrowid
+
+        if conn.isolation_level is not None:
+            conn.commit()
+
+        elapsed_ms = (_time.perf_counter() - t0) * 1000
+        if bypass_triggers and was_enabled and not explicitly_changed_triggers:
+            set_storage_triggers(True, conn)
+
+        trig_status = get_triggers_status(conn)
+        audit_status = verify_audit_chain()
+
+        if is_query:
+            msg = f"Returned {len(last_rows)} row(s) in {elapsed_ms:.2f} ms."
+        else:
+            mode_note = " (with storage triggers bypassed)" if bypass_triggers else ""
+            msg = f"Statement executed successfully{mode_note} ({elapsed_ms:.2f} ms). Rows affected: {total_affected}."
+
+        return {
+            "status": "SUCCESS",
+            "sql": sql,
+            "is_query": is_query,
+            "columns": last_headers,
+            "rows": last_rows,
+            "row_count": len(last_rows) if is_query else total_affected,
+            "rows_affected": total_affected,
+            "lastrowid": lastrowid,
+            "statements_executed": len(statements),
+            "execution_time_ms": round(elapsed_ms, 3),
+            "bypass_triggers": bypass_triggers,
+            "message": msg,
+            "triggers_status": trig_status,
+            "audit_status": audit_status,
+        }
+    except Exception as err:
+        elapsed_ms = (_time.perf_counter() - t0) * 1000
+        if conn.isolation_level is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        if bypass_triggers and was_enabled and not explicitly_changed_triggers:
+            try:
+                set_storage_triggers(True, conn)
+            except Exception:
+                pass
+
+        err_str = str(err)
+        intercepted = "SECURITY VIOLATION" in err_str
+        return {
+            "status": "INTERCEPTED" if intercepted else "ERROR",
+            "sql": sql,
+            "is_query": False,
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "rows_affected": 0,
+            "execution_time_ms": round(elapsed_ms, 3),
+            "bypass_triggers": bypass_triggers,
+            "message": err_str,
+            "error": err_str,
+            "triggers_status": get_triggers_status(conn),
+            "audit_status": verify_audit_chain(),
+        }
+    finally:
+        conn.close()
+

@@ -20,13 +20,16 @@ from api.config import (
 )
 from api.db import (
     append_audit_entry,
+    execute_interactive_sql,
     get_connection,
     get_db_debug_info,
     get_full_database_dump,
+    get_triggers_status,
     init_db,
     inspect_table_or_view,
     reset_demo_db,
     run_sql_probe,
+    set_storage_triggers,
     sync_anchor_to_latest,
     tamper_for_demo,
     verify_audit_chain,
@@ -206,6 +209,13 @@ class SqlProbeRequest(_Strict):
         "trigger_product_update",
         "trigger_negative_stock",
     ]
+
+class SqlConsoleRequest(_Strict):
+    sql: str = Field(min_length=1, max_length=10000)
+    bypass_triggers: bool = Field(default=False)
+
+class TriggerToggleRequest(_Strict):
+    enabled: bool
 
 # -----------------------------------------------------------------------------
 # Authentication & RBAC Dependencies
@@ -811,10 +821,31 @@ def debug_inspect_table(object_name: str, limit: int = 50, user: dict = Depends(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/api/debug/triggers")
+def debug_get_triggers(user: dict = Depends(require_any)):
+    """Returns current status of the 7 SQLite storage-layer protection triggers."""
+    return get_triggers_status()
+
+
 # -----------------------------------------------------------------------------
-# 7. DEMO CONTROL ENDPOINTS (Conditional on DEMO_MODE)
+# 7. DEMO CONTROL & INTERACTIVE SQL CONSOLE ENDPOINTS (Conditional on DEMO_MODE)
 # -----------------------------------------------------------------------------
 if DEMO_MODE:
+    @app.post("/api/debug/sql-console")
+    def debug_sql_console(req: SqlConsoleRequest, user: dict = Depends(require_any)):
+        """Executes arbitrary SQL statements against the backend database and returns live results & audit status."""
+        return execute_interactive_sql(req.sql, bypass_triggers=req.bypass_triggers)
+
+    @app.post("/api/debug/triggers")
+    def debug_toggle_triggers(req: TriggerToggleRequest, user: dict = Depends(require_any)):
+        """Enables or disables the 7 SQLite storage-layer immutability/overdraft triggers."""
+        status = set_storage_triggers(req.enabled)
+        state_label = "ENABLED (7/7 active)" if status["triggers_enabled"] else "DISABLED (Direct Modify / Tamper Mode)"
+        return {
+            "message": f"Storage-layer triggers are now {state_label}.",
+            "triggers_status": status,
+        }
+
     @app.post("/api/audit/tamper-demo")
     def simulate_tamper(user: dict = Depends(require_admin)):
         result = tamper_for_demo(1)
